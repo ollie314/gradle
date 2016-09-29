@@ -22,11 +22,9 @@ import org.gradle.internal.classpath.ClassPath;
  */
 public interface HashingClassLoaderFactory extends ClassLoaderFactory, ClassLoaderHasher {
     /**
-     * Creates a custom {@link ClassLoader} with the given parent and classpath. The hash of the created classloader is stored.
+     * Creates a {@link ClassLoader} with the given parent and classpath.
+     * If {@code ignoreHash} is {@code true}, then a dummy hash is going to be used
+     * instead of the hash calculated from the given classpath.
      */
-    ClassLoader createCustomClassLoader(ClassLoader parent, ClassPath classPath, CustomClassLoaderFactory factory);
-
-    interface CustomClassLoaderFactory {
-        ClassLoader create(ClassLoader parent, ClassPath classPath);
-    }
+    ClassLoader createChildClassLoader(ClassLoader parent, ClassPath classPath, boolean ignoreHash);
 }
