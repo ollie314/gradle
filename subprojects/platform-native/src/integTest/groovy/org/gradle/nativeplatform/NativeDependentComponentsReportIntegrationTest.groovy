@@ -170,8 +170,8 @@ class NativeDependentComponentsReportIntegrationTest extends AbstractIntegration
         '''.stripIndent()
 
         where:
-        option             | _
-        '--all'            | _
+        option            | _
+        '--all'           | _
         '--non-buildable' | _
     }
 
@@ -259,7 +259,7 @@ class NativeDependentComponentsReportIntegrationTest extends AbstractIntegration
         buildScript multiProjectBuild()
 
         when: 'two reports in parallel'
-        succeeds('--parallel', '--max-workers=4', 'libraries:dependentComponents', 'extensions:dependentComponents')
+        succeeds('-q', '--parallel', '--max-workers=4', 'libraries:dependentComponents', 'extensions:dependentComponents')
 
         then: 'reports are not mixed'
         output.contains '''
@@ -537,10 +537,10 @@ class NativeDependentComponentsReportIntegrationTest extends AbstractIntegration
         output.contains emptyDependents()
 
         where:
-        option             | _
-        "--test-suites"    | _
+        option            | _
+        "--test-suites"   | _
         "--non-buildable" | _
-        "--all"            | _
+        "--all"           | _
     }
 
     private static String emptyNativeBuild() {

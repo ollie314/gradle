@@ -17,12 +17,11 @@
 package org.gradle.performance
 
 import org.gradle.performance.categories.NativePerformanceTest
-import org.gradle.performance.measure.DataAmount
 import org.junit.experimental.categories.Category
+import spock.lang.Ignore
 import spock.lang.Unroll
 
-import static org.gradle.performance.measure.Duration.millis
-
+@Ignore
 @Category(NativePerformanceTest)
 class NativeBuildDependentsPerformanceTest extends AbstractCrossVersionPerformanceTest {
     @Unroll("Project '#testProject' measuring build dependents speed for #subprojectPath")
@@ -31,13 +30,10 @@ class NativeBuildDependentsPerformanceTest extends AbstractCrossVersionPerforman
         runner.testId = "build dependents of native project $testProject"
         runner.testProject = testProject
         runner.tasksToRun = [ "$subprojectPath:$taskName" ]
-        runner.maxExecutionTimeRegression = maxExecutionTimeRegression
         runner.targetVersions = ['nightly']
         runner.useDaemon = true
 
         runner.args += ["--parallel", "--max-workers=4"]
-
-        runner.maxMemoryRegression = DataAmount.mbytes(100)
 
         when:
         def result = runner.run()
@@ -46,13 +42,13 @@ class NativeBuildDependentsPerformanceTest extends AbstractCrossVersionPerforman
         result.assertCurrentVersionHasNotRegressed()
 
         where:
-        testProject        | subprojectPath | taskName                | maxExecutionTimeRegression
-        "nativeDependents"     | ':libA0' | 'buildDependentsLibA00' | millis(1000) // has the most dependent components
-        "nativeDependents"     | ':libA6' | 'buildDependentsLibA60' | millis(1000) // has a few dependent components
-        "nativeDependents"     | ':exeA0' | 'buildDependentsExeA00' | millis(1000) // has no dependent components
+        testProject        | subprojectPath | taskName
+        "nativeDependents" | ':libA0'       | 'buildDependentsLibA00'
+        "nativeDependents" | ':libA6'       | 'buildDependentsLibA60'
+        "nativeDependents" | ':exeA0'       | 'buildDependentsExeA00'
         // TODO: Re-enable these once our memory troubles are over.
-        // "nativeDependentsDeep" | ':libA0' | 'buildDependentsLibA00' | millis(1000) // has the most dependent components
-        // "nativeDependentsDeep" | ':exeA0' | 'buildDependentsExeA00' | millis(1000) // has no dependent components
+        // "nativeDependentsDeep" | ':libA0' | 'buildDependentsLibA00'
+        // "nativeDependentsDeep" | ':exeA0' | 'buildDependentsExeA00'
     }
 
     @Unroll("Project '#testProject' measuring build dependents report speed for #subprojectPath")
@@ -61,13 +57,10 @@ class NativeBuildDependentsPerformanceTest extends AbstractCrossVersionPerforman
         runner.testId = "build dependents of native project $testProject"
         runner.testProject = testProject
         runner.tasksToRun = [ "$subprojectPath:dependentComponents" ]
-        runner.maxExecutionTimeRegression = maxExecutionTimeRegression
         runner.targetVersions = ['nightly']
         runner.useDaemon = true
 
         runner.args += ["--parallel", "--max-workers=4"]
-
-        runner.maxMemoryRegression = DataAmount.mbytes(100)
 
         when:
         def result = runner.run()
@@ -76,12 +69,12 @@ class NativeBuildDependentsPerformanceTest extends AbstractCrossVersionPerforman
         result.assertCurrentVersionHasNotRegressed()
 
         where:
-        testProject            | subprojectPath | maxExecutionTimeRegression
-        "nativeDependents"     | ':libA0'       | millis(1000) // has the most dependent components
-        "nativeDependents"     | ':libA6'       | millis(1000) // has a few dependent components
-        "nativeDependents"     | ':exeA0'       | millis(1000) // has no dependent components
+        testProject        | subprojectPath
+        "nativeDependents" | ':libA0'
+        "nativeDependents" | ':libA6'
+        "nativeDependents" | ':exeA0'
         // TODO: Re-enable these once our memory troubles are over.
-        // "nativeDependentsDeep" | ':libA0'       | millis(1000) // has the most dependent components
-        // "nativeDependentsDeep" | ':exeA0'       | millis(1000) // has no dependent components
+        // "nativeDependentsDeep" | ':libA0'
+        // "nativeDependentsDeep" | ':exeA0'
     }
 }
