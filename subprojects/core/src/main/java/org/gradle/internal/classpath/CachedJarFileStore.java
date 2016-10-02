@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-package org.gradle.cache.internal;
-
-import org.gradle.api.Nullable;
+package org.gradle.internal.classpath;
 
 import java.io.File;
 
-public interface CacheScopeMapping {
-    File getBaseDirectory(@Nullable Object scope, String key, VersionStrategy versionStrategy);
+/**
+ * Represents a store of cached and immutable jar files. Once added to a file store, a jar file should not be mutated in place.
+ */
+public interface CachedJarFileStore {
+    /**
+     * Returns the root directory of the store.
+     */
+    File getJarFileStoreDirectory();
 }
