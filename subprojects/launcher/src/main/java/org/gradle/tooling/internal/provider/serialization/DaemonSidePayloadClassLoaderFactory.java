@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-package org.gradle.tooling.internal.provider;
+package org.gradle.tooling.internal.provider.serialization;
 
-import org.gradle.internal.classpath.CachedClasspathTransformer;
 import org.gradle.internal.classloader.ClassLoaderSpec;
 import org.gradle.internal.classloader.VisitableURLClassLoader;
+import org.gradle.internal.classpath.CachedClasspathTransformer;
 
 import java.net.URL;
 import java.util.Collection;
@@ -34,17 +34,25 @@ public class DaemonSidePayloadClassLoaderFactory implements PayloadClassLoaderFa
     }
 
     public ClassLoader getClassLoaderFor(ClassLoaderSpec spec, List<? extends ClassLoader> parents) {
+        if (spec instanceof ClientOwnedClassLoaderSpec) {
+            ClientOwnedClassLoaderSpec clientSpec = (ClientOwnedClassLoaderSpec) spec;
+            return createClassLoaderForClassPath(parents, clientSpec.getClasspath());
+        }
         if (spec instanceof VisitableURLClassLoader.Spec) {
             VisitableURLClassLoader.Spec urlSpec = (VisitableURLClassLoader.Spec) spec;
-            if (parents.size() != 1) {
-                throw new IllegalStateException("Expected exactly one parent ClassLoader");
-            }
-
-            // convert the file urls to cached jar files
-            Collection<URL> cachedClassPathUrls = cachedClasspathTransformer.transform(urlSpec.getClasspath());
-
-            return new VisitableURLClassLoader(parents.get(0), cachedClassPathUrls);
+            return createClassLoaderForClassPath(parents, urlSpec.getClasspath());
         }
         return delegate.getClassLoaderFor(spec, parents);
+    }
+
+    private ClassLoader createClassLoaderForClassPath(List<? extends ClassLoader> parents, List<URL> classpath) {
+        if (parents.size() != 1) {
+            throw new IllegalStateException("Expected exactly one parent ClassLoader");
+        }
+
+        // convert the file urls to cached jar files
+        Collection<URL> cachedClassPathUrls = cachedClasspathTransformer.transform(classpath);
+
+        return new VisitableURLClassLoader(parents.get(0), cachedClassPathUrls);
     }
 }

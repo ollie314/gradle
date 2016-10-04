@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,11 +14,17 @@
  * limitations under the License.
  */
 
-package org.gradle.tooling.internal.provider;
+package org.gradle.integtests.tooling.r32;
 
-public interface DeserializeMap {
-    /**
-     * Loads a serialized Class.
-     */
-    Class<?> resolveClass(ClassLoaderDetails classLoaderDetails, String className) throws ClassNotFoundException;
+import org.gradle.tooling.BuildAction;
+import org.gradle.tooling.BuildController;
+
+import java.util.Collections;
+import java.util.List;
+
+public class Action2 implements BuildAction<List<String>> {
+    @Override
+    public List<String> execute(BuildController controller) {
+        return Collections.singletonList(controller.getBuildModel().getRootProject().getName() + " " + (++SharedActionStaticState.counter));
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.gradle.tooling.internal.provider;
+package org.gradle.tooling.internal.provider.serialization;
 
 import com.google.common.collect.ImmutableSet;
 import org.gradle.internal.classloader.ClassLoaderSpec;
@@ -98,6 +98,29 @@ public class WellKnownClassLoaderRegistry implements PayloadClassLoaderRegistry 
 
         KnownClassLoaderSpec(short id) {
             this.id = id;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj == this) {
+                return true;
+            }
+            if (obj == null || obj.getClass() != getClass()) {
+                return false;
+            }
+
+            KnownClassLoaderSpec other = (KnownClassLoaderSpec) obj;
+            return id == other.id;
+        }
+
+        @Override
+        public int hashCode() {
+            return id;
+        }
+
+        @Override
+        public String toString() {
+            return "{known-class-loader id: " + id + "}";
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,24 +14,8 @@
  * limitations under the License.
  */
 
-package org.gradle.tooling.internal.provider;
+package org.gradle.integtests.tooling.r32;
 
-import java.io.Serializable;
-
-public class SerializedPayload implements Serializable {
-    private final byte[] serializedModel;
-    private final Object header;
-
-    public SerializedPayload(Object header, byte[] serializedModel) {
-        this.header = header;
-        this.serializedModel = serializedModel;
-    }
-
-    public Object getHeader() {
-        return header;
-    }
-
-    public byte[] getSerializedModel() {
-        return serializedModel;
-    }
+public class SharedActionStaticState {
+    static long counter;
 }

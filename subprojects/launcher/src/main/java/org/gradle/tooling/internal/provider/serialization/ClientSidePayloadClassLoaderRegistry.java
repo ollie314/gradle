@@ -1,5 +1,5 @@
 /*
- * Copyright 2013 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
-package org.gradle.tooling.internal.provider;
+package org.gradle.tooling.internal.provider.serialization;
 
 import com.google.common.collect.Sets;
 import net.jcip.annotations.ThreadSafe;
-import org.gradle.internal.classloader.VisitableURLClassLoader;
 
 import java.lang.ref.WeakReference;
 import java.net.URL;
@@ -41,11 +40,11 @@ import java.util.concurrent.locks.ReentrantLock;
 public class ClientSidePayloadClassLoaderRegistry implements PayloadClassLoaderRegistry {
     private static final short CLIENT_CLASS_LOADER_ID = 1;
     private final PayloadClassLoaderRegistry delegate;
-    private final Lock lock = new ReentrantLock();
     private final ClasspathInferer classpathInferer;
     private final ClassLoaderCache classLoaderCache;
+    private final Lock lock = new ReentrantLock(); // protects the following state
     // Contains only application owned ClassLoaders
-    private final Map<UUID, LocalClassLoader> classLoaders = new LinkedHashMap<UUID, LocalClassLoader>();
+    private final Map<UUID, LocalClassLoaderMapping> classLoaders = new LinkedHashMap<UUID, LocalClassLoaderMapping>();
 
     public ClientSidePayloadClassLoaderRegistry(PayloadClassLoaderRegistry delegate, ClasspathInferer classpathInferer, ClassLoaderCache classLoaderCache) {
         this.delegate = delegate;
@@ -63,7 +62,7 @@ public class ClientSidePayloadClassLoaderRegistry implements PayloadClassLoaderR
                 ClassLoader classLoader = target.getClassLoader();
                 Short id = classLoaderIds.get(classLoader);
                 if (id != null) {
-                    // A known ClassLoader
+                    // Already seen this ClassLoader
                     return id;
                 }
                 ClassLoaderDetails details = classLoaderCache.maybeGetDetails(classLoader);
@@ -91,7 +90,7 @@ public class ClientSidePayloadClassLoaderRegistry implements PayloadClassLoaderR
                     lock.unlock();
                 }
                 details.putAll(classLoaderDetails);
-                details.put(CLIENT_CLASS_LOADER_ID, new ClassLoaderDetails(uuid, new VisitableURLClassLoader.Spec(new ArrayList<URL>(classPath))));
+                details.put(CLIENT_CLASS_LOADER_ID, new ClassLoaderDetails(uuid, new ClientOwnedClassLoaderSpec(new ArrayList<URL>(classPath))));
             }
         };
     }
@@ -126,12 +125,12 @@ public class ClientSidePayloadClassLoaderRegistry implements PayloadClassLoaderR
     }
 
     private Set<ClassLoader> getClassLoaders(UUID uuid) {
-        LocalClassLoader localClassLoader = classLoaders.get(uuid);
-        if (localClassLoader == null) {
+        LocalClassLoaderMapping localClassLoaderMapping = classLoaders.get(uuid);
+        if (localClassLoaderMapping == null) {
             return null;
         }
         Set<ClassLoader> candidates = Sets.newLinkedHashSet();
-        for (WeakReference<ClassLoader> reference : localClassLoader.classLoaders) {
+        for (WeakReference<ClassLoader> reference : localClassLoaderMapping.classLoaders) {
             ClassLoader classLoader = reference.get();
             if (classLoader != null) {
                 candidates.add(classLoader);
@@ -141,24 +140,24 @@ public class ClientSidePayloadClassLoaderRegistry implements PayloadClassLoaderR
     }
 
     private UUID getUuidForLocalClassLoaders(Set<ClassLoader> candidates) {
-        for (LocalClassLoader localClassLoader : new ArrayList<LocalClassLoader>(classLoaders.values())) {
+        for (LocalClassLoaderMapping localClassLoaderMapping : new ArrayList<LocalClassLoaderMapping>(classLoaders.values())) {
             Set<ClassLoader> localCandidates = new LinkedHashSet<ClassLoader>();
-            for (WeakReference<ClassLoader> reference : localClassLoader.classLoaders) {
+            for (WeakReference<ClassLoader> reference : localClassLoaderMapping.classLoaders) {
                 ClassLoader cl = reference.get();
                 if (cl != null) {
                     localCandidates.add(cl);
                 }
             }
             if (localCandidates.isEmpty()) {
-                classLoaders.remove(localClassLoader.uuid);
+                classLoaders.remove(localClassLoaderMapping.uuid);
                 continue;
             }
             if (localCandidates.equals(candidates)) {
-                return localClassLoader.uuid;
+                return localClassLoaderMapping.uuid;
             }
         }
 
-        LocalClassLoader details = new LocalClassLoader(UUID.randomUUID());
+        LocalClassLoaderMapping details = new LocalClassLoaderMapping(UUID.randomUUID());
         for (ClassLoader candidate : candidates) {
             details.classLoaders.add(new WeakReference<ClassLoader>(candidate));
         }
@@ -166,11 +165,11 @@ public class ClientSidePayloadClassLoaderRegistry implements PayloadClassLoaderR
         return details.uuid;
     }
 
-    private static class LocalClassLoader {
+    private static class LocalClassLoaderMapping {
         private final Set<WeakReference<ClassLoader>> classLoaders = Sets.newLinkedHashSet();
         private final UUID uuid;
 
-        private LocalClassLoader(UUID uuid) {
+        private LocalClassLoaderMapping(UUID uuid) {
             this.uuid = uuid;
         }
     }
