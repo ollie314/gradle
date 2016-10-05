@@ -131,18 +131,30 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
     }
 
     def "task results don't get loaded when pulling is disabled"() {
+        expect:
+        cacheDir.listFiles() as List == []
+
         when:
         succeedsWithCache "jar"
+        def originalCacheContents = (cacheDir.listFiles() as List).sort()
+        def originalModificationTimes = originalCacheContents.collect { file -> TestFile.makeOlder(file); file.lastModified() }
         then:
         skippedTasks.empty
+        originalCacheContents.size() > 0
 
         expect:
         succeedsWithCache "clean"
 
         when:
         succeedsWithCache "jar", "-Dorg.gradle.cache.tasks.pull=false"
+        def updatedCacheContents = (cacheDir.listFiles() as List).sort()
+        def updatedModificationTimes = updatedCacheContents*.lastModified()
         then:
         nonSkippedTasks.containsAll ":compileJava", ":jar"
+        updatedCacheContents == originalCacheContents
+        originalModificationTimes.size().times { i ->
+            assert originalModificationTimes[i] < updatedModificationTimes[i]
+        }
     }
 
     def "buildSrc is loaded from cache"() {
@@ -519,8 +531,9 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
 
         then:
         output.contains """
-            3 tasks in build, out of which 2 (67%) were cacheable
-            3 (100%) executed
+            3 tasks in build, out of which 3 (100%) were executed
+            2  (67%) cache miss
+            1  (33%) not cacheable
         """ .stripIndent()
 
         when:
@@ -529,10 +542,10 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
 
         then:
         output.contains """
-            3 tasks in build, out of which 1 (33%) were cacheable
+            3 tasks in build, out of which 1 (33%) were executed
             1  (33%) up-to-date
             1  (33%) loaded from cache
-            1  (33%) executed
+            1  (33%) not cacheable
         """.stripIndent()
     }
 
