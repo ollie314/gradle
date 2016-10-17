@@ -16,40 +16,18 @@
 
 package org.gradle.api.internal.tasks.cache
 
-import groovy.transform.EqualsAndHashCode
-import groovy.transform.ToString
-import org.gradle.api.file.FileCollection
-import org.gradle.api.internal.TaskOutputsInternal
-import org.gradle.api.internal.changedetection.state.SnapshotNormalizationStrategy
-import org.gradle.api.internal.changedetection.state.TaskFilePropertyCompareStrategy
-import org.gradle.api.internal.changedetection.state.TaskFilePropertySnapshotNormalizationStrategy
-import org.gradle.api.internal.file.collections.SimpleFileCollection
-import org.gradle.api.internal.tasks.CacheableTaskOutputFilePropertySpec
-import org.gradle.api.internal.tasks.TaskPropertySpec
 import org.gradle.internal.nativeplatform.filesystem.FileSystem
-import org.gradle.test.fixtures.file.CleanupTestDirectory
-import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
-import org.junit.Rule
-import spock.lang.Specification
 import spock.lang.Unroll
 
-import static org.gradle.api.internal.tasks.CacheableTaskOutputFilePropertySpec.OutputType.DIRECTORY
-import static org.gradle.api.internal.tasks.CacheableTaskOutputFilePropertySpec.OutputType.FILE
-
-@CleanupTestDirectory(fieldName = "tempDir")
-class TarTaskOutputPackerTest extends Specification {
+class TarTaskOutputPackerTest extends AbstractTaskOutputPackerSpec {
     def fileSystem = Mock(FileSystem)
-    def taskOutputs = Mock(TaskOutputsInternal)
     def packer = new TarTaskOutputPacker(fileSystem)
-
-    @Rule
-    TestNameTestDirectoryProvider tempDir = new TestNameTestDirectoryProvider()
 
     @Unroll
     def "can pack single task output file with file mode #mode"() {
-        def sourceOutputFile = tempDir.file("source.txt")
+        def sourceOutputFile = Spy(File, constructorArgs: [tempDir.file("source.txt").absolutePath])
         sourceOutputFile << "output"
-        def targetOutputFile = tempDir.file("target.txt")
+        def targetOutputFile = Spy(File, constructorArgs: [tempDir.file("target.txt").absolutePath])
         def output = new ByteArrayOutputStream()
         def unixMode = Integer.parseInt(mode, 8)
 
@@ -60,6 +38,8 @@ class TarTaskOutputPackerTest extends Specification {
             new TestProperty(propertyName: "test", outputFile: sourceOutputFile)
         ] as SortedSet)
         1 * fileSystem.getUnixMode(sourceOutputFile) >> unixMode
+        _ * sourceOutputFile.lastModified() >> fileDate
+        _ * sourceOutputFile._
         0 * _
 
         when:
@@ -71,17 +51,21 @@ class TarTaskOutputPackerTest extends Specification {
             new TestProperty(propertyName: "test", outputFile: targetOutputFile)
         ] as SortedSet)
         1 * fileSystem.chmod(targetOutputFile, unixMode)
+        1 * targetOutputFile.setLastModified(_) >> { long time ->
+            assert time == fileDate
+            return true
+        }
+        _ * targetOutputFile._
         then:
         targetOutputFile.text == "output"
         0 * _
 
         where:
-        mode   | _
-        "0644" | _
-        "0755" | _
+        mode   | fileDate
+        "0644" | 123456789000L
+        "0755" | 123456789012L
     }
 
-    @Unroll
     def "can pack task output directory"() {
         def sourceOutputDir = tempDir.file("source").createDir()
         def sourceSubDir = sourceOutputDir.file("subdir").createDir()
@@ -147,37 +131,5 @@ class TarTaskOutputPackerTest extends Specification {
         then:
         targetOutputFile.text == "output"
         0 * _
-    }
-
-    @ToString
-    @EqualsAndHashCode
-    private static class TestProperty implements CacheableTaskOutputFilePropertySpec {
-        String propertyName
-        File outputFile
-
-        @Override
-        FileCollection getPropertyFiles() {
-            new SimpleFileCollection(outputFile)
-        }
-
-        @Override
-        CacheableTaskOutputFilePropertySpec.OutputType getOutputType() {
-            return outputFile.directory ? DIRECTORY : FILE
-        }
-
-        @Override
-        TaskFilePropertyCompareStrategy getCompareStrategy() {
-            TaskFilePropertyCompareStrategy.OUTPUT
-        }
-
-        @Override
-        SnapshotNormalizationStrategy getSnapshotNormalizationStrategy() {
-            TaskFilePropertySnapshotNormalizationStrategy.RELATIVE
-        }
-
-        @Override
-        int compareTo(TaskPropertySpec o) {
-            propertyName <=> o.propertyName
-        }
     }
 }

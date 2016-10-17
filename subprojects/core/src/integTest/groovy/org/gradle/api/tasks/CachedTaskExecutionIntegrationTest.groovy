@@ -16,13 +16,12 @@
 
 package org.gradle.api.tasks
 
-import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.AbstractLocalTaskCacheIntegrationTest
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
-import org.gradle.integtests.fixtures.executer.GradleExecuter
 import org.gradle.test.fixtures.file.TestFile
 import spock.lang.IgnoreIf
 
-class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
+class CachedTaskExecutionIntegrationTest extends AbstractLocalTaskCacheIntegrationTest {
     public static final String ORIGINAL_HELLO_WORLD = """
             public class Hello {
                 public static void main(String... args) {
@@ -38,12 +37,7 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
             }
         """
 
-    File cacheDir
-
     def setup() {
-        // Make sure cache dir is empty for every test execution
-        cacheDir = temporaryFolder.file("cache-dir").deleteDir().createDir()
-
         setupProjectInDirectory(testDirectory)
     }
 
@@ -86,6 +80,34 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
         succeedsWithCache "jar"
         then:
         skippedTasks.containsAll ":compileJava", ":jar"
+    }
+
+    // Note: this test only actually tests millisecond-precision when:
+    //
+    //   a) it is ran on a file system with finer-than-a-second time precision
+    //      (only Ext4 and NTFS at the time of writing),
+    //   b) the current Java implementation actually supports
+    //      finer-than-a-second precision timestamps via File.lastModified()
+    //      (only Windows Java 8 at the time of writing).
+    //
+    // Even when finer-than-a-millisecond precision would be available via
+    // Files.getLastModifiedTime(), we still restore only millisecond precision
+    // dates.
+    def "restored cached results match original timestamp with millisecond precision"() {
+        settingsFile << "rootProject.name = 'test'"
+        succeedsWithCache "jar"
+        def originalModificationTime = file("build/libs/test.jar").assertIsFile().lastModified()
+
+        when:
+        // We really need to sleep here, and can't use the `makeOlder()` trick,
+        // because the results are already cached with the original timestamp
+        sleep(1000)
+        succeedsWithCache "clean"
+        succeedsWithCache "jar"
+
+        then:
+        skippedTasks.containsAll ":compileJava", ":jar"
+        file("build/libs/test.jar").lastModified() == originalModificationTime
     }
 
     def "cached tasks are executed with --rerun-tasks"() {
@@ -549,7 +571,7 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
         """.stripIndent()
     }
 
-    String adHocTaskWithInputs() {
+    private static String adHocTaskWithInputs() {
         """
         task adHocTask {
             def outputFile = file("\$buildDir/output.txt")
@@ -561,6 +583,27 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
             }
         }
         """.stripIndent()
+    }
+
+    def "previous outputs are cleared before task is loaded from cache"() {
+        when:
+        succeedsWithCache "jar"
+        then:
+        skippedTasks.empty
+
+        when:
+        assert file("build/classes/main/Hello.class").delete()
+        assert file("build/classes/main/Hi.class") << "A fake class that somehow got in the way"
+        succeedsWithCache "compileJava"
+        then:
+        skippedTasks.contains ":compileJava"
+        file("build/classes/main/Hello.class").exists()
+        !file("build/classes/main/Hi.class").exists()
+
+        when:
+        succeedsWithCache "jar"
+        then:
+        skippedTasks.containsAll ":compileJava", ":jar"
     }
 
     void taskIsNotCached(String task) {
@@ -579,20 +622,5 @@ class CachedTaskExecutionIntegrationTest extends AbstractIntegrationSpec {
 
         runWithCache task
         assert skippedTasks.contains(task)
-    }
-
-    def runWithCache(String... tasks) {
-        enableCache()
-        run tasks
-    }
-
-    def succeedsWithCache(String... tasks) {
-        enableCache()
-        succeeds tasks
-    }
-
-    private GradleExecuter enableCache() {
-        executer.withArgument "-Dorg.gradle.cache.tasks=true"
-        executer.withArgument "-Dorg.gradle.cache.tasks.directory=" + cacheDir.absolutePath
     }
 }
