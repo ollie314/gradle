@@ -14,14 +14,30 @@
  * limitations under the License.
  */
 
-buildscript {
-    repositories {
-        maven { url 'https://gradle.artifactoryonline.com/gradle/gradle-build-internal' }
-        maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+package org.gradle.internal.nativeintegration.jansi;
+
+public class JansiLibrary {
+    private final String platform;
+    private final String filename;
+
+    public JansiLibrary(String platform, String filename) {
+        this.platform = platform;
+        this.filename = filename;
     }
-    dependencies {
-        classpath 'org.gradle.ci.health:gradle-build-tag-plugin:0.21'
+
+    public String getPlatform() {
+        return platform;
+    }
+
+    public String getFilename() {
+        return filename;
+    }
+
+    public String getPath() {
+        return platform + "/" + filename;
+    }
+
+    public String getResourcePath() {
+        return "/META-INF/native/" + getPath();
     }
 }
-
-apply plugin: org.gradle.ci.tagging.plugin.TeamCityBuildTagPlugin

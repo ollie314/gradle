@@ -13,15 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.gradle.performance.results;
 
-buildscript {
-    repositories {
-        maven { url 'https://gradle.artifactoryonline.com/gradle/gradle-build-internal' }
-        maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+public enum Flakiness {
+    flaky(true),
+    not_flaky(false);
+
+    private final boolean isFlaky;
+
+    Flakiness(boolean flaky) {
+        this.isFlaky = flaky;
     }
-    dependencies {
-        classpath 'org.gradle.ci.health:gradle-build-tag-plugin:0.21'
+
+
+
+    public boolean isFlaky() {
+        return isFlaky;
     }
 }
-
-apply plugin: org.gradle.ci.tagging.plugin.TeamCityBuildTagPlugin
