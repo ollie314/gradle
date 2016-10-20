@@ -43,23 +43,33 @@ class GradleApiSpecAggregatorTest extends Specification {
     static class SpecProvider1 implements GradleApiSpecProvider {
         @Override
         GradleApiSpecProvider.Spec get() {
-            return new GradleApiSpecProvider.SpecBuilder()
-                .exportPackage("kotlin")
-                .build()
+            new GradleApiSpecProvider.SpecAdapter() {
+                @Override
+                Set<String> getExportedPackages() {
+                    setOf("kotlin")
+                }
+            }
         }
     }
 
     static class SpecProvider2 implements GradleApiSpecProvider {
         @Override
         GradleApiSpecProvider.Spec get() {
-            return new GradleApiSpecProvider.SpecBuilder()
-                .exportPackages("org.gradle", "groovy")
-                .exportResourcePrefix("META-INF/gradle-plugins")
-                .build()
+            new GradleApiSpecProvider.SpecAdapter() {
+                @Override
+                Set<String> getExportedPackages() {
+                    setOf("org.gradle", "groovy")
+                }
+
+                @Override
+                Set<String> getExportedResourcePrefixes() {
+                    setOf("META-INF/gradle-plugins")
+                }
+            }
         }
     }
 
-    Set<String> setOf(String... xs) {
+    static Set<String> setOf(String... xs) {
         xs as Set<String>
     }
 

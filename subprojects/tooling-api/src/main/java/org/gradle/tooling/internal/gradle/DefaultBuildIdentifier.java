@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,25 @@
  * limitations under the License.
  */
 
-package org.gradle.performance.fixture;
+package org.gradle.tooling.internal.gradle;
 
-public interface GradleInvocationCustomizer extends InvocationCustomizer<GradleInvocationSpec> {
+import java.io.File;
+import java.io.Serializable;
+
+public class DefaultBuildIdentifier implements Serializable, GradleBuildIdentity {
+    private final File rootDir;
+
+    public DefaultBuildIdentifier(File rootDir) {
+        this.rootDir = rootDir.getAbsoluteFile();
+    }
+
+    public File getRootDir() {
+        return rootDir;
+    }
+
+    @Override
+    public String toString() {
+        return "build=" + rootDir.getPath();
+    }
+
 }

@@ -19,7 +19,6 @@ package org.gradle.tooling.internal.provider.runner;
 import org.gradle.BuildAdapter;
 import org.gradle.BuildResult;
 import org.gradle.api.BuildCancelledException;
-import org.gradle.api.Project;
 import org.gradle.api.internal.GradleInternal;
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.execution.ProjectConfigurer;
@@ -35,7 +34,6 @@ import org.gradle.tooling.internal.provider.serialization.PayloadSerializer;
 import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 import org.gradle.tooling.provider.model.UnknownModelException;
-import org.gradle.tooling.provider.model.internal.ProjectSensitiveToolingModelBuilder;
 
 public class BuildModelActionRunner implements BuildActionRunner {
     @Override
@@ -92,17 +90,13 @@ public class BuildModelActionRunner implements BuildActionRunner {
             String modelName = buildModelAction.getModelName();
             ToolingModelBuilder builder = getModelBuilder(gradle, modelName);
 
-            if (builder instanceof ProjectSensitiveToolingModelBuilder) {
-                return ((ProjectSensitiveToolingModelBuilder) builder).buildAll(modelName, gradle.getDefaultProject(), true);
-            } else {
-                return builder.buildAll(modelName, gradle.getDefaultProject());
-            }
+            return builder.buildAll(modelName, gradle.getDefaultProject());
         }
 
         private static void forceFullConfiguration(GradleInternal gradle) {
             try {
                 ProjectInternal rootProject = gradle.getRootProject();
-                fullyConfigure(gradle, rootProject);
+                getProjectConfigurer(gradle).configureHierarchyFully(rootProject);
             } catch (BuildCancelledException e) {
                 throw new InternalBuildCancelledException(e);
             } catch (RuntimeException e) {
@@ -110,20 +104,8 @@ public class BuildModelActionRunner implements BuildActionRunner {
             }
         }
 
-        private static void fullyConfigure(GradleInternal gradle, ProjectInternal rootProject) {
-            getProjectConfigurer(gradle).configureHierarchy(rootProject);
-            for (Project project : rootProject.getAllprojects()) {
-                fullyConfigure((ProjectInternal) project);
-            }
-        }
-
         private static ProjectConfigurer getProjectConfigurer(GradleInternal gradle) {
             return gradle.getServices().get(ProjectConfigurer.class);
-        }
-
-        private static void fullyConfigure(ProjectInternal projectInternal) {
-            projectInternal.getTasks().discoverTasks();
-            projectInternal.bindAllModelRules();
         }
 
         private static ToolingModelBuilder getModelBuilder(GradleInternal gradle, String modelName) {

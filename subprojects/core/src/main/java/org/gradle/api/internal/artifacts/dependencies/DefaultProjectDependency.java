@@ -31,6 +31,7 @@ import org.gradle.api.internal.tasks.AbstractTaskDependency;
 import org.gradle.api.internal.tasks.TaskDependencyInternal;
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext;
 import org.gradle.initialization.ProjectAccessListener;
+import org.gradle.util.DeprecationLogger;
 import org.gradle.util.GUtil;
 
 import java.io.File;
@@ -39,6 +40,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 public class DefaultProjectDependency extends AbstractModuleDependency implements ProjectDependencyInternal {
     private static final Function<Configuration, String> CONFIG_NAME = new Function<Configuration, String>() {
@@ -82,15 +84,17 @@ public class DefaultProjectDependency extends AbstractModuleDependency implement
 
     @Deprecated
     public Configuration getProjectConfiguration() {
+        DeprecationLogger.nagUserOfDeprecated("ProjectDependency#getProjectConfiguration()", "There might not be a single matching configuration. Please use ProjectDependency#getDependencyProject().getConfigurations() instead");
         return dependencyProject.getConfigurations().getByName(getConfiguration());
     }
 
     @Override
-    public Configuration findProjectConfiguration(Map<String, String> clientAttributes) {
+    public Configuration findProjectConfiguration(final Map<String, String> clientAttributes) {
         Configuration selectedConfiguration = null;
         ConfigurationContainer dependencyConfigurations = getDependencyProject().getConfigurations();
         String declaredConfiguration = getTargetConfiguration();
-        if (declaredConfiguration == null && !clientAttributes.isEmpty()) {
+        boolean useConfigurationAttributes = declaredConfiguration == null && !clientAttributes.isEmpty();
+        if (useConfigurationAttributes) {
             List<Configuration> candidateConfigurations = new ArrayList<Configuration>(1);
             for (Configuration dependencyConfiguration : dependencyConfigurations) {
                 if (dependencyConfiguration.hasAttributes()) {
@@ -103,7 +107,7 @@ public class DefaultProjectDependency extends AbstractModuleDependency implement
             if (candidateConfigurations.size()==1) {
                 selectedConfiguration = candidateConfigurations.get(0);
             } else if (!candidateConfigurations.isEmpty()) {
-                throw new IllegalArgumentException("Cannot choose between the following configurations: " + Sets.newTreeSet(Lists.transform(candidateConfigurations, CONFIG_NAME)) + ". All of then match the client attributes " + clientAttributes);
+                throw new IllegalArgumentException("Cannot choose between the following configurations: " + Sets.newTreeSet(Lists.transform(candidateConfigurations, CONFIG_NAME)) + ". All of then match the client attributes " + new TreeMap<String, String>(clientAttributes));
             }
         }
         if (selectedConfiguration == null) {

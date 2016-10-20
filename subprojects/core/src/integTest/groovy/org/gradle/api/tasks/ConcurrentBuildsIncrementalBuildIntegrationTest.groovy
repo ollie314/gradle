@@ -40,7 +40,7 @@ class ConcurrentBuildsIncrementalBuildIntegrationTest extends AbstractIntegratio
     @Rule CyclicBarrierHttpServer server1 = new CyclicBarrierHttpServer()
     @Rule CyclicBarrierHttpServer server2 = new CyclicBarrierHttpServer()
 
-    private TestFile writeTransformerTask() {
+    private void prepareTransformTask() {
         file('buildSrc/src/main/groovy/TransformerTask.groovy') << '''
 import org.gradle.api.*
 import org.gradle.api.tasks.*
@@ -83,10 +83,14 @@ public class TransformerTask extends DefaultTask {
     }
 }
 '''
+
+        // Execute a build to pre-build the `buildSrc` project
+        // TODO Could precompile this into a plugin
+        succeeds "help"
     }
 
     def "task history is shared between multiple build processes"() {
-        writeTransformerTask()
+        prepareTransformTask()
 
         buildFile << """
 task a(type: TransformerTask) {
@@ -142,7 +146,7 @@ task block2 {
     }
 
     def "can interleave execution of tasks across multiple build processes"() {
-        writeTransformerTask()
+        prepareTransformTask()
 
         buildFile << """
 task a(type: TransformerTask) {
@@ -175,11 +179,13 @@ block2.mustRunAfter b
         when:
         // Start build 1 then wait until it has run task 'a'.
         executer.withTasks("a", "block1", "b")
+        executer.withArgument("--info")
         def build1 = executer.start()
         server1.waitFor()
 
         // Start build 2 then wait until it has run both 'a' and 'b'.
         executer.withTasks("a", "b", "block2")
+        executer.withArgument("--info")
         def build2 = executer.start()
         server2.waitFor()
 

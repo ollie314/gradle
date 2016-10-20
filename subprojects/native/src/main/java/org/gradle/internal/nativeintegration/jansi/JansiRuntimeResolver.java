@@ -14,15 +14,10 @@
  * limitations under the License.
  */
 
-package org.gradle.integtests.tooling.fixture;
+package org.gradle.internal.nativeintegration.jansi;
 
-import java.lang.annotation.*;
+public interface JansiRuntimeResolver {
 
-/**
- * Specifies that a test should not be executed with an integrated composite
- */
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.TYPE, ElementType.METHOD})
-@Inherited
-public @interface IgnoreIntegratedComposite {
+    String getOperatingSystem();
+    String getPlatform();
 }

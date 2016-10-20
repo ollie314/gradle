@@ -23,6 +23,7 @@ import org.gradle.api.artifacts.ResolveException;
 import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.artifacts.ResolvedDependency;
 import org.gradle.api.artifacts.UnresolvedDependency;
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ResolvedArtifacts;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.oldresult.TransientConfigurationResults;
 import org.gradle.api.specs.Spec;
@@ -130,16 +131,7 @@ public class DefaultLenientConfiguration implements LenientConfiguration {
         final Set<ResolvedArtifact> allArtifacts = getAllArtifacts(dependencySpec);
         return cacheLockingManager.useCache("retrieve artifacts from " + configuration, new Factory<Set<ResolvedArtifact>>() {
             public Set<ResolvedArtifact> create() {
-                return CollectionUtils.filter(allArtifacts, new Spec<ResolvedArtifact>() {
-                    public boolean isSatisfiedBy(ResolvedArtifact element) {
-                        try {
-                            File file = element.getFile();
-                            return file != null;
-                        } catch (ArtifactResolveException e) {
-                            return false;
-                        }
-                    }
-                });
+                return CollectionUtils.filter(allArtifacts, new IgnoreMissingExternalArtifacts());
             }
         });
     }
@@ -204,6 +196,24 @@ public class DefaultLenientConfiguration implements LenientConfiguration {
         public void getEdgeValues(ResolvedDependency from, ResolvedDependency to,
                                   Collection<ResolvedArtifact> values) {
             values.addAll(to.getParentArtifacts(from));
+        }
+    }
+
+    private static class IgnoreMissingExternalArtifacts implements Spec<ResolvedArtifact> {
+        public boolean isSatisfiedBy(ResolvedArtifact element) {
+            if (isExternalModuleArtifact(element)) {
+                try {
+                    File file = element.getFile();
+                    return file != null;
+                } catch (ArtifactResolveException e) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        boolean isExternalModuleArtifact(ResolvedArtifact element) {
+            return element.getId().getComponentIdentifier() instanceof ModuleComponentIdentifier;
         }
     }
 }

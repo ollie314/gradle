@@ -19,9 +19,9 @@ package org.gradle.tooling.internal.provider.runner;
 import org.gradle.BuildAdapter;
 import org.gradle.BuildResult;
 import org.gradle.api.BuildCancelledException;
-import org.gradle.api.Project;
+import org.gradle.api.initialization.IncludedBuild;
 import org.gradle.api.internal.GradleInternal;
-import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.composite.internal.IncludedBuildInternal;
 import org.gradle.execution.ProjectConfigurer;
 import org.gradle.internal.invocation.BuildAction;
 import org.gradle.internal.invocation.BuildActionRunner;
@@ -83,11 +83,10 @@ public class ClientProvidedBuildActionRunner implements BuildActionRunner {
 
     private void forceFullConfiguration(GradleInternal gradle) {
         try {
-            gradle.getServices().get(ProjectConfigurer.class).configureHierarchy(gradle.getRootProject());
-            for (Project project : gradle.getRootProject().getAllprojects()) {
-                ProjectInternal projectInternal = (ProjectInternal) project;
-                projectInternal.getTasks().discoverTasks();
-                projectInternal.bindAllModelRules();
+            gradle.getServices().get(ProjectConfigurer.class).configureHierarchyFully(gradle.getRootProject());
+            for (IncludedBuild includedBuild : gradle.getIncludedBuilds()) {
+                GradleInternal build = ((IncludedBuildInternal) includedBuild).getConfiguredBuild();
+                forceFullConfiguration(build);
             }
         } catch (BuildCancelledException e) {
             throw new InternalBuildCancelledException(e);
