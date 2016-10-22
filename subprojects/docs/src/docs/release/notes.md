@@ -34,6 +34,15 @@ The following are the newly deprecated items in this Gradle release. If you have
 ### Example deprecation
 -->
 
+### Deprecated Ant-related Java compiler properties
+
+* `JavaCompile.dependencyCacheDir`
+* `JavaCompileSpec.dependencyCacheDir`
+* `JavaPluginConvention.dependencyCacheDir`
+* `JavaPluginConvention.dependencyCacheDirName`
+* `CompileOptions.useDepend`
+* `CompileOptions.depend()`
+
 ## Potential breaking changes
 
 ### BuildInvocations model is always returned for the connected project

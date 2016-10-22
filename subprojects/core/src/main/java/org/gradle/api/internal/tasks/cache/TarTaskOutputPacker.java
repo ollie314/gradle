@@ -109,8 +109,12 @@ public class TarTaskOutputPacker implements TaskOutputPacker {
     }
 
     private void storeDirectoryProperty(String propertyName, File directory, final TarOutputStream outputStream) throws IOException {
+        if (!directory.exists()) {
+            return;
+        }
         final String propertyRoot = "property-" + propertyName + "/";
         outputStream.putNextEntry(new TarEntry(propertyRoot));
+        outputStream.closeEntry();
         FileVisitor visitor = new FileVisitor() {
             @Override
             public void visitDir(FileVisitDetails dirDetails) {
@@ -127,6 +131,9 @@ public class TarTaskOutputPacker implements TaskOutputPacker {
     }
 
     private void storeFileProperty(String propertyName, File file, TarOutputStream outputStream) {
+        if (!file.exists()) {
+            return;
+        }
         String path = "property-" + propertyName;
         storeFileEntry(file, path, file.lastModified(), file.length(), fileSystem.getUnixMode(file), outputStream);
     }

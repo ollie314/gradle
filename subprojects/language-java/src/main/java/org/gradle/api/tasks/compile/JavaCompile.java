@@ -20,7 +20,7 @@ import org.gradle.api.AntBuilder;
 import org.gradle.api.Incubating;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.internal.changedetection.changes.IncrementalTaskInputsInternal;
-import org.gradle.api.internal.changedetection.state.CachingFileSnapshotter;
+import org.gradle.api.internal.changedetection.state.CachingFileHasher;
 import org.gradle.api.internal.file.FileOperations;
 import org.gradle.api.internal.tasks.compile.CleaningJavaCompiler;
 import org.gradle.api.internal.tasks.compile.DefaultJavaCompileSpec;
@@ -34,8 +34,8 @@ import org.gradle.api.internal.tasks.compile.incremental.deps.LocalClassSetAnaly
 import org.gradle.api.internal.tasks.compile.incremental.jar.JarSnapshotCache;
 import org.gradle.api.internal.tasks.compile.incremental.jar.LocalJarClasspathSnapshotStore;
 import org.gradle.api.tasks.CacheableTask;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
-import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.ParallelizableTask;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
@@ -50,6 +50,7 @@ import org.gradle.jvm.platform.internal.DefaultJavaPlatform;
 import org.gradle.jvm.toolchain.JavaToolChain;
 import org.gradle.language.base.internal.compile.Compiler;
 import org.gradle.language.base.internal.compile.CompilerUtil;
+import org.gradle.util.DeprecationLogger;
 import org.gradle.util.SingleMessageLogger;
 
 import javax.inject.Inject;
@@ -141,13 +142,13 @@ public class JavaCompile extends AbstractCompile {
             }
         };
         IncrementalCompilerFactory factory = new IncrementalCompilerFactory(
-            getFileOperations(), getCachingFileSnapshotter(), getPath(), createCompiler(spec), source, compileCaches, (IncrementalTaskInputsInternal) inputs);
+            getFileOperations(), getCachingFileHasher(), getPath(), createCompiler(spec), source, compileCaches, (IncrementalTaskInputsInternal) inputs);
         Compiler<JavaCompileSpec> compiler = factory.createCompiler();
         performCompilation(spec, compiler);
     }
 
     @Inject
-    protected CachingFileSnapshotter getCachingFileSnapshotter() {
+    protected CachingFileHasher getCachingFileHasher() {
         throw new UnsupportedOperationException();
     }
 
@@ -190,25 +191,42 @@ public class JavaCompile extends AbstractCompile {
     }
 
     private DefaultJavaCompileSpec createSpec() {
-        DefaultJavaCompileSpec spec = new DefaultJavaCompileSpecFactory(compileOptions).create();
+        final DefaultJavaCompileSpec spec = new DefaultJavaCompileSpecFactory(compileOptions).create();
         spec.setSource(getSource());
         spec.setDestinationDir(getDestinationDir());
         spec.setWorkingDir(getProject().getProjectDir());
         spec.setTempDir(getTemporaryDir());
         spec.setClasspath(getClasspath());
-        spec.setDependencyCacheDir(getDependencyCacheDir());
+        final File dependencyCacheDir = DeprecationLogger.whileDisabled(new Factory<File>() {
+            @Override
+            @SuppressWarnings("deprecation")
+            public File create() {
+                return getDependencyCacheDir();
+            }
+        });
+        DeprecationLogger.whileDisabled(new Runnable() {
+            @Override
+            @SuppressWarnings("deprecation")
+            public void run() {
+                spec.setDependencyCacheDir(dependencyCacheDir);
+            }
+        });
         spec.setTargetCompatibility(getTargetCompatibility());
         spec.setSourceCompatibility(getSourceCompatibility());
         spec.setCompileOptions(compileOptions);
         return spec;
     }
 
-    @OutputDirectory
+    @Internal
+    @Deprecated
     public File getDependencyCacheDir() {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("JavaCompile.getDependencyCacheDir()");
         return dependencyCacheDir;
     }
 
+    @Deprecated
     public void setDependencyCacheDir(File dependencyCacheDir) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("JavaCompile.setDependencyCacheDir()");
         this.dependencyCacheDir = dependencyCacheDir;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2009 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,12 +30,12 @@ import org.gradle.internal.serialize.Serializer;
 
 import java.io.File;
 
-public class CachingFileSnapshotter implements FileHasher {
+public class CachingFileHasher implements FileHasher {
     private final PersistentIndexedCache<String, FileInfo> cache;
     private final FileHasher delegate;
     private final StringInterner stringInterner;
 
-    public CachingFileSnapshotter(FileHasher delegate, PersistentStore store, StringInterner stringInterner) {
+    public CachingFileHasher(FileHasher delegate, PersistentStore store, StringInterner stringInterner) {
         this.delegate = delegate;
         this.cache = store.createCache("fileHashes", String.class, new FileInfoSerializer());
         this.stringInterner = stringInterner;

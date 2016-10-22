@@ -21,10 +21,14 @@ import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.file.TestFile
 
 import static org.gradle.internal.filewatch.ChangeReporter.SHOW_INDIVIDUAL_CHANGES_LIMIT
+import static org.gradle.internal.filewatch.DefaultFileSystemChangeWaiterFactory.QUIET_PERIOD_SYSPROP
+
 // Developer is able to easily determine the file(s) that triggered a rebuild
 class ContinuousBuildChangeReportingIntegrationTest extends Java7RequiringContinuousIntegrationTest {
     TestFile inputDir
     private static int changesLimit = SHOW_INDIVIDUAL_CHANGES_LIMIT
+    // Use an extended quiet period in the test to ensure all file events are reported together.
+    def quietPeriod = OperatingSystem.current().isMacOsX() ? 2500L : 1000L
 
     def setup() {
         buildFile << """
@@ -34,6 +38,8 @@ class ContinuousBuildChangeReportingIntegrationTest extends Java7RequiringContin
             }
         """
         inputDir = file("inputDir").createDir()
+
+        executer.withBuildJvmOpts("-D${QUIET_PERIOD_SYSPROP}=${quietPeriod}")
     }
 
     def "should report the absolute file path of the created file when a single file is created in the input directory"() {
@@ -182,14 +188,14 @@ class ContinuousBuildChangeReportingIntegrationTest extends Java7RequiringContin
                 }
             }
         """
-        // OSX watcher is based on polling
-        if (OperatingSystem.current().macOsX) {
-            buildFile << """
-                gradle.buildFinished {
-                    Thread.sleep(15000)
-                }
-            """
-        }
+        // Make sure the build lasts long enough for events to propagate
+        // Needs to be longer than the quiet period configured
+        int sleepPeriod = quietPeriod * 2
+        buildFile << """
+            gradle.buildFinished {
+                Thread.sleep(${sleepPeriod})
+            }
+        """
 
         when:
         succeeds("theTask")

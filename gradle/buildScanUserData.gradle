@@ -27,6 +27,12 @@ import org.gradle.api.internal.tasks.cache.statistics.TaskExecutionStatistics
 import org.gradle.internal.classloader.ClassLoaderHierarchyHasher
 
 if (plugins.hasPlugin("com.gradle.build-scan")) {
+    if (gradle.startParameter.taskNames == ["verifyTestFilesCleanup"]) {
+        buildScan.publishOnFailure()
+    } else {
+        buildScan.publishAlways()
+    }
+
     String commitId
     if (System.getenv("CI")) {
         buildScan.tag "CI"
@@ -113,12 +119,19 @@ if (plugins.hasPlugin("com.gradle.build-scan")) {
 
             @Override
             void afterExecute(Task task, TaskState state) {
-                def tasksToInvestigate = [':core:compileTestFixturesGroovy', ':diagnostics:compileTestGroovy', ':internalAndroidPerformanceTesting:compileJava', ':docs:checkstyleApi', ':announce:checkstyleIntegTestGroovy']
+                def tasksToInvestigate = [
+                    ':core:compileTestGroovy',
+                    ':core:compileTestFixturesGroovy',
+                    ':diagnostics:compileTestGroovy',
+                    ':internalAndroidPerformanceTesting:compileJava',
+                    ':launcher:compileTestFixturesGroovy',
+                    ':docs:checkstyleApi',
+                    ':announce:checkstyleIntegTestGroovy']
                 if (task.getPath() in tasksToInvestigate) {
                     def buildScan = task.project.buildScan
                     addTaskState(task, state)
                     task.inputs.properties.each { name, value ->
-                        buildScan.value "${task.path}-input-${name}", value?.toString()
+                        buildScan.value "${task.path}-input-${name}", String.valueOf(value)
                     }
                     def fileProperties = task.inputs.fileProperties
                     fileProperties.each { inputProperty ->
@@ -128,17 +141,22 @@ if (plugins.hasPlugin("com.gradle.build-scan")) {
                         def prefix = "${task.path}-input-${name}"
                         buildScan.value "${prefix}-hash", hashKey(snapshot)
                         def propertyFiles = inputProperty.propertyFiles
+                        int idx = 0
                         propertyFiles.visitRootElements(new FileCollectionVisitor() {
                             void visitCollection(FileCollectionInternal fileCollection) {
-                                buildScan.value "${prefix}-fileCollection", fileCollection.toString()
+                                buildScan.value "${prefix}-${idx}-fileCollection", fileCollection.toString()
+                                buildScan.value "${prefix}-${idx}-fileCollection-path", String.valueOf(fileCollection.getAsFileTree().getFiles())
+                                idx++
                             }
 
                             void visitTree(FileTreeInternal fileTree) {
-                                buildScan.value "${prefix}-fileTree", fileTree.toString()
+                                buildScan.value "${prefix}-${idx}-fileTree", fileTree.toString()
+                                idx++
                             }
 
                             void visitDirectoryTree(DirectoryFileTree directoryTree) {
-                                buildScan.value "${prefix}-dirTree", directoryTree.toString()
+                                buildScan.value "${prefix}-${idx}-dirTree", directoryTree.toString()
+                                idx++
                             }
                         })
                     }
