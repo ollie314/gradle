@@ -18,23 +18,19 @@ package org.gradle.integtests.fixtures.executer;
 
 import org.gradle.test.fixtures.file.TestDirectoryProvider;
 
-public class UnderDevelopmentGradleDistribution extends DefaultGradleDistribution {
+public class UnderDevelopmentGradleDistribution extends AbstractUnderDevelopmentGradleDistribution {
 
     public UnderDevelopmentGradleDistribution() {
-        this(new IntegrationTestBuildContext());
+        super();
     }
 
-    private UnderDevelopmentGradleDistribution(IntegrationTestBuildContext buildContext) {
-        super(
-                buildContext.getVersion(),
-                buildContext.getGradleHomeDir(),
-                buildContext.getDistributionsDir().file(String.format("gradle-%s-bin.zip", buildContext.getVersion().getVersion()))
-        );
+    public UnderDevelopmentGradleDistribution(IntegrationTestBuildContext buildContext) {
+        super(buildContext);
     }
 
     @Override
-    public GradleExecuter executer(TestDirectoryProvider testDirectoryProvider) {
-        return new GradleContextualExecuter(this, testDirectoryProvider);
+    public GradleExecuter executer(TestDirectoryProvider testDirectoryProvider, IntegrationTestBuildContext buildContext) {
+        return new GradleContextualExecuter(this, testDirectoryProvider, buildContext);
     }
 }
 

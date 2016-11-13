@@ -25,7 +25,6 @@ import org.gradle.initialization.DefaultBuildRequestContext
 import org.gradle.initialization.NoOpBuildEventConsumer
 import org.gradle.initialization.ReportedException
 import org.gradle.internal.concurrent.DefaultExecutorFactory
-import org.gradle.internal.concurrent.Stoppable
 import org.gradle.internal.event.DefaultListenerManager
 import org.gradle.internal.filewatch.FileSystemChangeWaiter
 import org.gradle.internal.filewatch.FileSystemChangeWaiterFactory
@@ -60,8 +59,6 @@ class ContinuousBuildActionExecuterTest extends Specification {
     def executorFactory = new DefaultExecutorFactory()
     def globalServices = Stub(ServiceRegistry)
     def executer = executer()
-    def taskInternal = Stub(TaskInternal)
-    def sessionService = Mock(Stoppable)
 
     private File file = new File('file')
 

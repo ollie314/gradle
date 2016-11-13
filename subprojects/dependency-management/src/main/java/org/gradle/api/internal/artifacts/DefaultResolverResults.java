@@ -19,20 +19,18 @@ package org.gradle.api.internal.artifacts;
 import org.gradle.api.artifacts.ResolveException;
 import org.gradle.api.artifacts.ResolvedConfiguration;
 import org.gradle.api.artifacts.result.ResolutionResult;
-import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ResolvedArtifactResults;
-import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ResolvedArtifactsBuilder;
-import org.gradle.api.internal.artifacts.ivyservice.resolveengine.oldresult.ResolvedGraphResults;
-import org.gradle.api.internal.artifacts.ivyservice.resolveengine.oldresult.TransientConfigurationResultsBuilder;
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactResults;
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.FileDependencyResults;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.projectresult.ResolvedLocalComponentsResult;
 
 public class DefaultResolverResults implements ResolverResults {
     private ResolvedConfiguration resolvedConfiguration;
+    private ArtifactResults artifactResults;
     private ResolutionResult resolutionResult;
     private ResolveException fatalFailure;
     private ResolvedLocalComponentsResult resolvedLocalComponentsResult;
-    private TransientConfigurationResultsBuilder transientConfigurationResultsBuilder;
-    private ResolvedGraphResults graphResults;
-    private ResolvedArtifactsBuilder artifactResults;
+    private Object artifactResolveState;
+    private FileDependencyResults fileDependencyResults;
 
     @Override
     public boolean hasError() {
@@ -45,34 +43,46 @@ public class DefaultResolverResults implements ResolverResults {
         return false;
     }
 
-    //old model, slowly being replaced by the new model
     @Override
     public ResolvedConfiguration getResolvedConfiguration() {
         assertHasArtifacts();
         return resolvedConfiguration;
     }
 
-    //new model
+    @Override
+    public ArtifactResults getArtifactResults() {
+        assertHasArtifacts();
+        return artifactResults;
+    }
+
     @Override
     public ResolutionResult getResolutionResult() {
-        assertHasResult();
         if (fatalFailure != null) {
             throw fatalFailure;
+        }
+        if (resolutionResult == null) {
+            throw new IllegalStateException("Resolution result has not been attached.");
         }
         return resolutionResult;
     }
 
     @Override
     public ResolvedLocalComponentsResult getResolvedLocalComponents() {
-        assertHasResult();
-        if (fatalFailure != null) {
-            throw fatalFailure;
-        }
+        assertHasLocalResult();
         return resolvedLocalComponentsResult;
     }
 
-    private void assertHasResult() {
-        if (resolutionResult == null && fatalFailure == null) {
+    @Override
+    public FileDependencyResults getFileDependencies() {
+        assertHasLocalResult();
+        return fileDependencyResults;
+    }
+
+    private void assertHasLocalResult() {
+        if (fatalFailure != null) {
+            throw fatalFailure;
+        }
+        if (resolvedLocalComponentsResult == null) {
             throw new IllegalStateException("Resolution result has not been attached.");
         }
     }
@@ -84,42 +94,42 @@ public class DefaultResolverResults implements ResolverResults {
     }
 
     @Override
-    public void resolved(ResolutionResult resolutionResult, ResolvedLocalComponentsResult resolvedLocalComponentsResult) {
+    public void graphResolved(ResolvedLocalComponentsResult resolvedLocalComponentsResult, FileDependencyResults fileDependencyResults) {
+        this.fileDependencyResults = fileDependencyResults;
+        this.resolvedLocalComponentsResult = resolvedLocalComponentsResult;
+        this.resolutionResult = null;
+        this.fatalFailure = null;
+    }
+
+    @Override
+    public void graphResolved(ResolutionResult resolutionResult, ResolvedLocalComponentsResult resolvedLocalComponentsResult, FileDependencyResults fileDependencyResults) {
         this.resolutionResult = resolutionResult;
         this.resolvedLocalComponentsResult = resolvedLocalComponentsResult;
+        this.fileDependencyResults = fileDependencyResults;
         this.fatalFailure = null;
     }
 
     @Override
     public void failed(ResolveException failure) {
         this.resolutionResult = null;
+        this.resolvedLocalComponentsResult = null;
         this.fatalFailure = failure;
     }
 
     @Override
-    public void withResolvedConfiguration(ResolvedConfiguration resolvedConfiguration) {
+    public void artifactsResolved(ResolvedConfiguration resolvedConfiguration, ArtifactResults artifactResults) {
         this.resolvedConfiguration = resolvedConfiguration;
-        this.graphResults = null;
-        this.transientConfigurationResultsBuilder = null;
-        this.artifactResults = null;
-    }
-
-    // State not exposed via BuildableResolverResults, that is only accessed via DefaultConfigurationResolver
-    public void retainState(ResolvedGraphResults graphResults, ResolvedArtifactsBuilder artifactResults, TransientConfigurationResultsBuilder transientConfigurationResultsBuilder) {
-        this.graphResults = graphResults;
         this.artifactResults = artifactResults;
-        this.transientConfigurationResultsBuilder = transientConfigurationResultsBuilder;
+        this.artifactResolveState = null;
     }
 
-    public ResolvedGraphResults getGraphResults() {
-        return graphResults;
+    @Override
+    public void retainState(Object artifactResolveState) {
+        this.artifactResolveState = artifactResolveState;
     }
 
-    public ResolvedArtifactResults getResolvedArtifacts() {
-        return artifactResults.resolve();
-    }
-
-    public TransientConfigurationResultsBuilder getTransientConfigurationResultsBuilder() {
-        return transientConfigurationResultsBuilder;
+    @Override
+    public Object getArtifactResolveState() {
+        return artifactResolveState;
     }
 }

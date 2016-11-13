@@ -16,8 +16,11 @@
 
 package org.gradle.performance.fixture
 
+import org.gradle.integtests.fixtures.executer.ForkingUnderDevelopmentGradleDistribution
 import org.gradle.integtests.fixtures.executer.GradleDistribution
-import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
+import org.gradle.internal.time.TimeProvider
+import org.gradle.internal.time.TrueTimeProvider
 import org.gradle.performance.results.DataReporter
 import org.gradle.performance.results.MeasuredOperationList
 import org.gradle.performance.results.PerformanceTestResult
@@ -26,9 +29,11 @@ import org.gradle.performance.results.ResultsStoreHelper
 import org.junit.Assume
 
 abstract class AbstractGradleBuildPerformanceTestRunner<R extends PerformanceTestResult> {
-    final GradleDistribution gradleDistribution = new UnderDevelopmentGradleDistribution()
+    final IntegrationTestBuildContext buildContext
+    final GradleDistribution gradleDistribution
     final BuildExperimentRunner experimentRunner
     final TestProjectLocator testProjectLocator = new TestProjectLocator()
+    final TimeProvider timeProvider = new TrueTimeProvider()
 
     String testId
     String testGroup
@@ -39,9 +44,11 @@ abstract class AbstractGradleBuildPerformanceTestRunner<R extends PerformanceTes
     BuildExperimentListener buildExperimentListener
     InvocationCustomizer invocationCustomizer
 
-    public AbstractGradleBuildPerformanceTestRunner(BuildExperimentRunner experimentRunner, DataReporter<R> dataReporter) {
+    public AbstractGradleBuildPerformanceTestRunner(BuildExperimentRunner experimentRunner, DataReporter<R> dataReporter, IntegrationTestBuildContext buildContext) {
         this.reporter = dataReporter
         this.experimentRunner = experimentRunner
+        this.buildContext = buildContext
+        this.gradleDistribution = new ForkingUnderDevelopmentGradleDistribution(buildContext)
     }
 
     public void baseline(@DelegatesTo(GradleBuildExperimentSpec.GradleBuilder) Closure<?> configureAction) {
@@ -76,6 +83,10 @@ abstract class AbstractGradleBuildPerformanceTestRunner<R extends PerformanceTes
         builder.invocation.workingDirectory = builder.workingDirectory
     }
 
+    protected List<String> customizeJvmOptions(List<String> jvmOptions) {
+        PerformanceTestJvmOptions.customizeJvmOptions(jvmOptions)
+    }
+
     abstract R newResult()
 
     abstract MeasuredOperationList operations(R result, BuildExperimentSpec spec)
@@ -91,7 +102,7 @@ abstract class AbstractGradleBuildPerformanceTestRunner<R extends PerformanceTes
 
         runAllSpecifications(results)
 
-        results.endTime = System.currentTimeMillis()
+        results.endTime = timeProvider.getCurrentTime()
 
         results.assertEveryBuildSucceeds()
         reporter.report(results)

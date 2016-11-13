@@ -20,12 +20,12 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.PublishArtifact
 import org.gradle.api.artifacts.PublishArtifactSet
+import org.gradle.api.internal.artifacts.AttributeContainerInternal
 import org.gradle.api.internal.artifacts.DefaultDependencySet
 import org.gradle.api.internal.artifacts.DefaultPublishArtifactSet
 import org.gradle.api.internal.artifacts.configurations.ConfigurationInternal
 import org.gradle.api.internal.artifacts.ivyservice.moduleconverter.dependencies.DependenciesToModuleDescriptorConverter
 import org.gradle.api.internal.file.TestFiles
-import org.gradle.api.tasks.TaskDependency
 import org.gradle.internal.component.external.model.DefaultIvyModulePublishMetadata
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
 import org.gradle.internal.component.external.model.IvyModulePublishMetadata
@@ -43,8 +43,8 @@ class DefaultConfigurationComponentMetaDataBuilderTest extends Specification {
     def "adds artifacts from each configuration"() {
         def emptySet = new HashSet<String>()
         def metaData = Mock(BuildableLocalComponentMetadata)
-        def config1 = Stub(Configuration)
-        def config2 = Stub(Configuration)
+        def config1 = config()
+        def config2 = config()
         def artifacts1 = Stub(PublishArtifactSet)
         def artifacts2 = Stub(PublishArtifactSet)
 
@@ -58,11 +58,17 @@ class DefaultConfigurationComponentMetaDataBuilderTest extends Specification {
         converter.addConfigurations(metaData, [config1, config2])
 
         then:
-        _ * metaData.addConfiguration("config1", '', emptySet, emptySet, false, false, [:], _ as TaskDependency)
-        _ * metaData.addConfiguration("config2", '', emptySet, emptySet, false, false, [:], _ as TaskDependency)
+        _ * metaData.addConfiguration("config1", '', emptySet, emptySet, false, false, _, false, false)
+        _ * metaData.addConfiguration("config2", '', emptySet, emptySet, false, false, _, false, false)
         1 * metaData.addArtifacts("config1", artifacts1)
         1 * metaData.addArtifacts("config2", artifacts2)
         0 * metaData._
+    }
+
+    private Configuration config() {
+        Stub(Configuration) {
+            getAttributes() >> Stub(AttributeContainerInternal)
+        }
     }
 
     def "adds configurations to ivy module descriptor"() {
@@ -99,6 +105,7 @@ class DefaultConfigurationComponentMetaDataBuilderTest extends Specification {
         stub.getAllDependencies() >> new DefaultDependencySet("foo",  Mock(Configuration), WrapUtil.toDomainObjectSet(Dependency.class))
         stub.getArtifacts() >> new DefaultPublishArtifactSet("foo", WrapUtil.toDomainObjectSet(PublishArtifact.class), TestFiles.fileCollectionFactory())
         stub.getAllArtifacts() >> new DefaultPublishArtifactSet("foo", WrapUtil.toDomainObjectSet(PublishArtifact.class), TestFiles.fileCollectionFactory())
+        stub.getAttributes() >> Stub(AttributeContainerInternal)
         return stub;
     }
 

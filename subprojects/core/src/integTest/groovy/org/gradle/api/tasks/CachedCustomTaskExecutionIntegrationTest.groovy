@@ -16,28 +16,12 @@
 
 package org.gradle.api.tasks
 
-import org.gradle.integtests.fixtures.AbstractLocalTaskCacheIntegrationTest
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.LocalTaskCacheFixture
 import org.gradle.test.fixtures.file.TestFile
-import org.gradle.util.Requires
-import spock.lang.Issue
+import spock.lang.Unroll
 
-import static org.gradle.util.TestPrecondition.FIX_TO_WORK_ON_JAVA9
-import static org.gradle.util.TestPrecondition.NOT_JDK_IBM
-
-class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheIntegrationTest {
-    public static final String APPLY_KOTLIN = """
-            plugins {
-                id "nebula.kotlin" version "1.0.4"
-            }
-            repositories {
-                // required to resolve kotlin-stdlib dependency implicitly added by nebula.kotlin
-                jcenter()
-            }
-            dependencies {
-                compile(gradleApi())
-            }
-        """
-
+class CachedCustomTaskExecutionIntegrationTest extends AbstractIntegrationSpec implements LocalTaskCacheFixture {
     def "buildSrc is loaded from cache"() {
         file("buildSrc/src/main/groovy/MyTask.groovy") << """
             import org.gradle.api.*
@@ -45,7 +29,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
             class MyTask extends DefaultTask {}
         """
         when:
-        succeedsWithCache "tasks"
+        withTaskCache().succeeds "tasks"
         then:
         skippedTasks.empty
 
@@ -53,7 +37,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         file("buildSrc/build").assertIsDir().deleteDir()
 
         when:
-        succeedsWithCache "tasks"
+        withTaskCache().succeeds "tasks"
         then:
         output.contains ":buildSrc:compileGroovy FROM-CACHE"
         output.contains ":buildSrc:jar FROM-CACHE"
@@ -69,7 +53,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
             }
         """
         when:
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.empty
 
@@ -78,34 +62,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         file("buildSrc/.gradle").deleteDir()
         cleanBuildDir()
 
-        succeedsWithCache "customTask"
-        then:
-        skippedTasks.contains ":customTask"
-    }
-
-    @Issue("https://github.com/gradle/gradle-script-kotlin/issues/154")
-    @Requires([FIX_TO_WORK_ON_JAVA9, NOT_JDK_IBM])
-    def "tasks stay cached after buildSrc with custom Kotlin task is rebuilt"() {
-        file("buildSrc/src/main/kotlin/CustomTask.kt") << customKotlinTask()
-        file("buildSrc/build.gradle") << APPLY_KOTLIN
-        file("input.txt") << "input"
-        buildFile << """
-            task customTask(type: CustomTask) {
-                inputFile = file "input.txt"
-                outputFile = file "build/output.txt"
-            }
-        """
-        when:
-        succeedsWithCache "customTask"
-        then:
-        skippedTasks.empty
-
-        when:
-        file("buildSrc/build").deleteDir()
-        file("buildSrc/.gradle").deleteDir()
-        cleanBuildDir()
-
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.contains ":customTask"
     }
@@ -122,7 +79,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
             }
         """
         when:
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.empty
         file("build/output.txt").text == "input"
@@ -131,37 +88,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         taskSourceFile.text = customGroovyTask(" modified")
 
         cleanBuildDir()
-        succeedsWithCache "customTask"
-        then:
-        nonSkippedTasks.contains ":customTask"
-        file("build/output.txt").text == "input modified"
-    }
-
-    @Issue("https://github.com/gradle/gradle-script-kotlin/issues/154")
-    @Requires([FIX_TO_WORK_ON_JAVA9, NOT_JDK_IBM])
-    def "changing custom Kotlin task implementation in buildSrc doesn't invalidate built-in task"() {
-        def taskSourceFile = file("buildSrc/src/main/kotlin/CustomTask.kt")
-        taskSourceFile << customKotlinTask()
-        taskSourceFile.makeOlder()
-        file("buildSrc/build.gradle") << APPLY_KOTLIN
-        file("input.txt") << "input"
-        buildFile << """
-            task customTask(type: CustomTask) {
-                inputFile = file "input.txt"
-                outputFile = file "build/output.txt"
-            }
-        """
-        when:
-        succeedsWithCache "customTask"
-        then:
-        skippedTasks.empty
-        file("build/output.txt").text == "input"
-
-        when:
-        taskSourceFile.text = customKotlinTask(" modified")
-
-        cleanBuildDir()
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
         file("build/output.txt").text == "input modified"
@@ -179,25 +106,6 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
                 @TaskAction void doSomething() {
                     outputFile.parentFile.mkdirs()
                     outputFile.text = inputFile.text + "$suffix"
-                }
-            }
-        """
-    }
-
-    private static String customKotlinTask(String suffix = "") {
-        """
-            import org.gradle.api.*
-            import org.gradle.api.tasks.*
-            import java.io.File
-
-            @CacheableTask
-            open class CustomTask() : DefaultTask() {
-                @get:InputFile var inputFile: File? = null
-                @get:OutputFile var outputFile: File? = null
-                @TaskAction fun doSomething() {
-                    outputFile!!.parentFile.mkdirs()
-                    outputFile!!.writeText(inputFile!!.readText())
-                    outputFile!!.appendText("$suffix")
                 }
             }
         """
@@ -227,13 +135,13 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         """
 
         when:
-        runWithCache "customTask"
+        withTaskCache().run "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
 
         when:
         cleanBuildDir()
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.contains ":customTask"
 
@@ -243,10 +151,10 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
             customTask.outputs.cacheIf { false }
         """
 
-        runWithCache "customTask"
+        withTaskCache().run "customTask"
         cleanBuildDir()
 
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
 
         then:
         nonSkippedTasks.contains ":customTask"
@@ -266,7 +174,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         """
 
         when:
-        succeedsWithCache "customTask", "--info"
+        withTaskCache().succeeds "customTask", "--info"
         then:
         nonSkippedTasks.contains ":customTask"
         output.contains "Not caching task ':customTask' because it declares multiple output files for a single output property via `@OutputFiles`, `@OutputDirectories` or `TaskOutputs.files()`"
@@ -292,13 +200,13 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         """
 
         when:
-        runWithCache "customTask"
+        withTaskCache().run "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
 
         when:
         cleanBuildDir()
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.contains ":customTask"
     }
@@ -365,7 +273,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         """
 
         when:
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
         file("build/output.txt").text == "data"
@@ -374,7 +282,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
 
         when:
         cleanBuildDir()
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.contains ":customTask"
         file("build/output.txt").text == "data"
@@ -386,7 +294,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         buildFile << """
             customTask.secondaryOutputFile = null
         """
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
         file("build/output.txt").text == "data"
@@ -394,7 +302,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
 
         when:
         cleanBuildDir()
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.contains ":customTask"
         file("build/output.txt").text == "data"
@@ -430,7 +338,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         """
 
         when:
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
         file("build/output-1.txt").text == "one"
@@ -445,7 +353,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
                 two: file("build/output-b.txt")
             ]
         """
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         skippedTasks.contains ":customTask"
         file("build/output-a.txt").text == "one"
@@ -460,7 +368,7 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
                 second: file("build/output-b.txt")
             ]
         """
-        succeedsWithCache "customTask"
+        withTaskCache().succeeds "customTask"
         then:
         nonSkippedTasks.contains ":customTask"
         file("build/output-a.txt").text == "first"
@@ -468,25 +376,122 @@ class CachedCustomTaskExecutionIntegrationTest extends AbstractLocalTaskCacheInt
         file("build").listFiles().sort() as List == [file("build/output-a.txt"), file("build/output-b.txt")]
     }
 
+    @Unroll
+    def "missing output #type is not cached"() {
+        given:
+        file("input.txt") << "data"
+        buildFile << """
+            task customTask {
+                inputs.file "input.txt"
+                outputs.file "build/output.txt" withPropertyName "output"
+                outputs.$type "build/missing" withPropertyName "missing"
+                outputs.cacheIf { true }
+                doLast {
+                    file("build").mkdirs()
+                    file("build/output.txt").text = file("input.txt").text
+                }
+            }
+        """
+
+        when:
+        withTaskCache().succeeds "customTask"
+        then:
+        nonSkippedTasks.contains ":customTask"
+        file("build/output.txt").text == "data"
+        file("build/missing").assertDoesNotExist()
+
+        when:
+        cleanBuildDir()
+        withTaskCache().succeeds "customTask"
+        then:
+        skippedTasks.contains ":customTask"
+        file("build/output.txt").text == "data"
+        file("build/missing").assertDoesNotExist()
+
+        where:
+        type   | _
+        "file" | _
+        // TODO:LPTR Do not create output directory when output directory
+        // was not present at original execution
+        // "dir"  | _
+    }
+
+    def "empty output directory is cached properly"() {
+        given:
+        buildFile << """
+            task customTask {
+                outputs.dir "build/empty" withPropertyName "empty"
+                outputs.cacheIf { true }
+                doLast {
+                    file("build/empty").mkdirs()
+                }
+            }
+        """
+
+        when:
+        withTaskCache().succeeds "customTask"
+        then:
+        nonSkippedTasks.contains ":customTask"
+        file("build/empty").assertIsEmptyDir()
+
+        when:
+        cleanBuildDir()
+        withTaskCache().succeeds "customTask"
+        then:
+        skippedTasks.contains ":customTask"
+        file("build/empty").assertIsEmptyDir()
+    }
+
+    @Unroll
+    def "fails gracefully when output #expected is expected but #actual is produced"() {
+        given:
+        file("input.txt") << "data"
+        buildFile << """
+            task customTask {
+                inputs.file "input.txt"
+                outputs.$expected "build/output" withPropertyName "output"
+                outputs.cacheIf { true }
+                doLast {
+                    ${
+                        actual == "file" ?
+                            "mkdir('build'); file('build/output').text = file('input.txt').text"
+                            : "mkdir('build/output'); file('build/output/output.txt').text = file('input.txt').text"
+                    }
+                }
+            }
+        """
+
+        when:
+        executer.withStackTraceChecksDisabled()
+        withTaskCache().succeeds "customTask"
+        then:
+        output.contains message.replace("PATH", file("build/output").path)
+
+        where:
+        expected | actual | message
+        "file"   | "dir"  | "Expected 'PATH' to be a file"
+        "dir"    | "file" | "Expected 'PATH' to be a directory"
+    }
+
     private TestFile cleanBuildDir() {
         file("build").assertIsDir().deleteDir()
     }
 
     void taskIsNotCached(String task) {
-        runWithCache task
+        withTaskCache().run task
         assert nonSkippedTasks.contains(task)
         cleanBuildDir()
 
-        runWithCache task
+        withTaskCache().run task
         assert nonSkippedTasks.contains(task)
     }
 
     void taskIsCached(String task) {
-        runWithCache task
+        withTaskCache().run task
         assert nonSkippedTasks.contains(task)
         cleanBuildDir()
 
-        runWithCache task
+        withTaskCache().run task
         assert skippedTasks.contains(task)
     }
 }

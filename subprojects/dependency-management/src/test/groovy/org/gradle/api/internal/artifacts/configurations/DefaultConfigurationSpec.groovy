@@ -16,18 +16,33 @@
 package org.gradle.api.internal.artifacts.configurations
 
 import org.gradle.api.Action
+import org.gradle.api.Attribute
 import org.gradle.api.InvalidUserDataException
+import org.gradle.api.Named
 import org.gradle.api.Project
 import org.gradle.api.Task
-import org.gradle.api.artifacts.*
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.ConfigurationContainer
+import org.gradle.api.artifacts.Dependency
+import org.gradle.api.artifacts.DependencyResolutionListener
+import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.artifacts.PublishArtifact
+import org.gradle.api.artifacts.ResolvableDependencies
+import org.gradle.api.artifacts.ResolveException
+import org.gradle.api.artifacts.ResolvedConfiguration
+import org.gradle.api.artifacts.SelfResolvingDependency
 import org.gradle.api.artifacts.result.ResolutionResult
+import org.gradle.api.file.FileCollection
 import org.gradle.api.internal.artifacts.ConfigurationResolver
 import org.gradle.api.internal.artifacts.DefaultExcludeRule
 import org.gradle.api.internal.artifacts.DefaultResolverResults
+import org.gradle.api.internal.artifacts.ResolverResults
 import org.gradle.api.internal.artifacts.component.ComponentIdentifierFactory
 import org.gradle.api.internal.artifacts.dependencies.DefaultExternalModuleDependency
 import org.gradle.api.internal.artifacts.dsl.dependencies.ProjectFinder
 import org.gradle.api.internal.artifacts.ivyservice.moduleconverter.ConfigurationComponentMetaDataBuilder
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactResults
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.FileDependencyResults
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.projectresult.ResolvedLocalComponentsResult
 import org.gradle.api.internal.artifacts.publish.DefaultPublishArtifact
 import org.gradle.api.internal.file.TestFiles
@@ -38,6 +53,7 @@ import org.gradle.initialization.ProjectAccessListener
 import org.gradle.internal.event.ListenerBroadcast
 import org.gradle.internal.event.ListenerManager
 import spock.lang.Specification
+import spock.lang.Unroll
 
 import static org.gradle.api.artifacts.Configuration.State.*
 import static org.hamcrest.Matchers.equalTo
@@ -73,6 +89,9 @@ class DefaultConfigurationSpec extends Specification {
         configuration.state == UNRESOLVED
         configuration.displayName == "configuration 'path'"
         configuration.uploadTaskName == "uploadName"
+        configuration.attributes.isEmpty()
+        configuration.canBeResolved
+        configuration.canBeConsumed
     }
 
     def hasUsefulDisplayName() {
@@ -308,7 +327,7 @@ class DefaultConfigurationSpec extends Specification {
         def failure = new ResolveException("bad", new RuntimeException())
 
         and:
-        _ * resolver.resolve(_, _) >> { ConfigurationInternal config, DefaultResolverResults resolverResults ->
+        _ * resolver.resolveGraph(_, _) >> { ConfigurationInternal config, DefaultResolverResults resolverResults ->
             resolverResults.failed(failure)
         }
         _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> true
@@ -433,11 +452,13 @@ class DefaultConfigurationSpec extends Specification {
     private void expectResolved(ResolvedConfiguration resolvedConfiguration) {
         def resolutionResults = Mock(ResolutionResult)
         def localComponentsResult = Mock(ResolvedLocalComponentsResult)
+        def fileDependenciesResult = Mock(FileDependencyResults)
+        def artifactResults = Mock(ArtifactResults)
 
         _ * localComponentsResult.resolvedProjectConfigurations >> Collections.emptySet()
-        _ * resolver.resolve(_, _) >> { ConfigurationInternal config, DefaultResolverResults resolverResults ->
-            resolverResults.resolved(resolutionResults, localComponentsResult)
-            resolverResults.withResolvedConfiguration(resolvedConfiguration)
+        _ * resolver.resolveGraph(_, _) >> { ConfigurationInternal config, DefaultResolverResults resolverResults ->
+            resolverResults.graphResolved(resolutionResults, localComponentsResult, fileDependenciesResult)
+            resolverResults.artifactsResolved(resolvedConfiguration, artifactResults)
         }
     }
 
@@ -466,53 +487,37 @@ class DefaultConfigurationSpec extends Specification {
         configuration.allArtifacts.buildDependencies.getDependencies(Mock(Task)) == [artifactTask1, artifactTask2] as Set
     }
 
-    def "build dependencies delegates to self resolving dependencies"() {
+    def "build dependencies are calculated from the artifacts and files visited during graph resolution"() {
         def configuration = conf()
         def targetTask = Mock(Task)
-        def dependentTasks = [Mock(Task)] as Set
-        def taskDependency = Mock(TaskDependency)
-        def selfResolvingDependency = Mock(FileCollectionDependency)
+        def task1 = Mock(Task)
+        def task2 = Mock(Task)
+        def requiredTasks = [task1, task2] as Set
+        def artifactTaskDependencies = Mock(TaskDependency)
+        def fileDependency = Mock(FileCollection)
+        def fileDependencyTaskDependencies = Mock(TaskDependency)
+        def localComponentsResult = Mock(ResolvedLocalComponentsResult)
+        def fileDependenciesResult = Mock(FileDependencyResults)
 
         given:
-        _ * selfResolvingDependency.buildDependencies >> taskDependency
-        _ * taskDependency.getDependencies(targetTask) >> dependentTasks
+        _ * localComponentsResult.collectArtifactBuildDependencies(_) >> { it[0].add(artifactTaskDependencies) }
+        _ * fileDependenciesResult.collectBuildDependencies(_) >> { it[0].add(fileDependency) }
+        _ * fileDependency.buildDependencies >> fileDependencyTaskDependencies
+        _ * artifactTaskDependencies.getDependencies(_) >> ([task1] as Set)
+        _ * fileDependencyTaskDependencies.getDependencies(_) >> ([task2] as Set)
 
         and:
-        expectResolved(Mock(ResolvedConfiguration.class))
+        _ * resolver.resolveBuildDependencies(_, _) >> { ConfigurationInternal config, DefaultResolverResults resolverResults ->
+            resolverResults.graphResolved(localComponentsResult, fileDependenciesResult)
+        }
 
-        when:
-        configuration.getDependencies().add(selfResolvingDependency);
-
-        then:
-        configuration.buildDependencies.getDependencies(targetTask) == dependentTasks
+        expect:
+        configuration.buildDependencies.getDependencies(targetTask) == requiredTasks
+        configuration.incoming.dependencies.buildDependencies.getDependencies(targetTask) == requiredTasks
+        configuration.incoming.files.buildDependencies.getDependencies(targetTask) == requiredTasks
     }
 
-    def "configuration build dependency delegates to inherited configurations"() {
-        def otherConf = conf("other")
-        def configuration = conf().extendsFrom(otherConf)
-        def fileCollectionDependency = Mock(FileCollectionDependency.class);
-        def taskDependency = Mock(TaskDependency)
-
-        def targetTask = Mock(Task)
-        def dependentTasks = [Mock(Task)] as Set
-
-        given:
-        _ * fileCollectionDependency.buildDependencies >> taskDependency
-        _ * taskDependency.getDependencies(targetTask) >> dependentTasks
-
-        and:
-        expectResolved(Mock(ResolvedConfiguration.class))
-
-        when:
-        otherConf.dependencies.add(fileCollectionDependency)
-        configuration.extendsFrom(otherConf)
-
-        then:
-        otherConf.buildDependencies.getDependencies(targetTask) == dependentTasks
-        configuration.buildDependencies.getDependencies(targetTask) == dependentTasks
-    }
-
-    def "task dependency from project dependency wihtout common configuration"() {
+    def "task dependency from project dependency without common configuration"() {
         // This test exists because a NullPointerException was thrown by getTaskDependencyFromProjectDependency()
         // if the rootProject defined a task as the same name as a subproject task, but did not define the same configuration.
 
@@ -667,6 +672,30 @@ class DefaultConfigurationSpec extends Specification {
         assert copiedConfiguration.extendsFrom.empty
     }
 
+    @Unroll
+    void "copies configuration role"() {
+        def configuration = prepareConfigurationForCopyTest()
+        def resolutionStrategyCopy = Mock(ResolutionStrategyInternal)
+        1 * resolutionStrategy.copy() >> resolutionStrategyCopy
+
+        when:
+        configuration.canBeResolved = resolveAllowed
+        configuration.canBeConsumed = consumeAllowed
+        def copy = configuration.copy()
+
+
+        then:
+        copy.canBeResolved == configuration.canBeResolved
+        copy.canBeConsumed == configuration.canBeConsumed
+
+        where:
+        resolveAllowed | consumeAllowed
+        false          | false
+        true           | false
+        false          | true
+        true           | true
+    }
+
     def "can copy with spec"() {
         def configuration = prepareConfigurationForCopyTest()
         def resolutionStrategyCopy = Mock(ResolutionStrategyInternal)
@@ -684,7 +713,7 @@ class DefaultConfigurationSpec extends Specification {
 
         then:
         checkCopiedConfiguration(configuration, copiedConfiguration, resolutionStrategyCopy)
-        assert copiedConfiguration.dependencies.collect({it.group}) == ["group1", "group2"]
+        assert copiedConfiguration.dependencies.collect({ it.group }) == ["group1", "group2"]
     }
 
     def "can copy recursive"() {
@@ -715,6 +744,7 @@ class DefaultConfigurationSpec extends Specification {
         configuration.artifacts.add(artifact("name2", "ext2", "type2", "classifier2"))
         configuration.dependencies.add(dependency("group1", "name1", "version1"))
         configuration.dependencies.add(dependency("group2", "name2", "version2"))
+        configuration.attribute('key', 'value')
 
         def otherConf = conf("other")
         otherConf.dependencies.add(dependency("otherGroup", "name3", "version3"))
@@ -730,6 +760,13 @@ class DefaultConfigurationSpec extends Specification {
         assert copy.allArtifacts as Set == original.allArtifacts as Set
         assert copy.excludeRules == original.excludeRules
         assert copy.resolutionStrategy == resolutionStrategyInCopy
+        assert copy.hasAttributes() == original.hasAttributes()
+        assert copy.attributes.empty && original.attributes.empty || !copy.attributes.is(original.attributes)
+        original.attributes.keySet().each {
+            assert copy.getAttribute(it) == original.getAttribute(it)
+        }
+        assert copy.canBeResolved == original.canBeResolved
+        assert copy.canBeConsumed == original.canBeConsumed
         true
     }
 
@@ -782,36 +819,6 @@ class DefaultConfigurationSpec extends Specification {
         then:
         interaction { resolveConfig(config) }
         0 * resolver._
-    }
-
-    def "incoming dependencies set depends on all self resolving dependencies"() {
-        SelfResolvingDependency dependency = Mock()
-        Task task = Mock()
-        TaskDependency taskDep = Mock()
-        def config = conf("conf")
-        def resolvedConfiguration = Mock(ResolvedConfiguration)
-        def resolverResults = new DefaultResolverResults()
-        def projectConfigurationResults = Mock(ResolvedLocalComponentsResult)
-
-        given:
-        config.dependencies.add(dependency)
-
-        when:
-        def depTaskDeps = config.incoming.dependencies.buildDependencies.getDependencies(null)
-        def fileTaskDeps = config.incoming.files.buildDependencies.getDependencies(null)
-
-        then:
-        depTaskDeps == [task] as Set
-        fileTaskDeps == [task] as Set
-        _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> false
-        _ * resolvedConfiguration.hasError() >> false
-        _ * resolver.resolve(config, _) >> { ConfigurationInternal conf, DefaultResolverResults res ->
-            res.resolved(Mock(ResolutionResult), projectConfigurationResults)
-        }
-        _ * projectConfigurationResults.get() >> []
-        _ * dependency.buildDependencies >> taskDep
-        _ * taskDep.getDependencies(_) >> ([task] as Set)
-        0 * _._
     }
 
     def "notifies beforeResolve action on incoming dependencies set when dependencies are resolved"() {
@@ -930,41 +937,14 @@ class DefaultConfigurationSpec extends Specification {
         def localComponentsResult = Mock(ResolvedLocalComponentsResult)
         localComponentsResult.resolvedProjectConfigurations >> []
         localComponentsResult.componentBuildDependencies >> new DefaultTaskDependency()
-        resolver.resolve(config, _) >> { ConfigurationInternal conf, DefaultResolverResults res ->
-            res.resolved(resolutionResult, localComponentsResult)
+        def artifactResult = Mock(ArtifactResults)
+        def fileDependenciesResult = Mock(FileDependencyResults)
+        resolver.resolveGraph(config, _) >> { ConfigurationInternal conf, DefaultResolverResults res ->
+            res.graphResolved(resolutionResult, localComponentsResult, fileDependenciesResult)
         }
         resolver.resolveArtifacts(config, _) >> { ConfigurationInternal conf, DefaultResolverResults res ->
-            res.withResolvedConfiguration(resolvedConfiguration)
+            res.artifactsResolved(resolvedConfiguration, artifactResult)
         }
-    }
-
-    def "resolving configuration for task dependencies puts it into the right state"() {
-        def config = conf("conf")
-        def result = Mock(ResolutionResult)
-        resolves(config, result, Mock(ResolvedConfiguration))
-
-        when:
-        1 * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> true
-        config.getBuildDependencies()
-
-        then:
-        config.resolvedState == ConfigurationInternal.InternalState.TASK_DEPENDENCIES_RESOLVED
-        config.state == RESOLVED
-    }
-
-    def "can determine task dependencies without resolution"() {
-        def config = conf("conf")
-
-        when:
-        config.getBuildDependencies()
-
-        then:
-        config.resolvedState == ConfigurationInternal.InternalState.UNRESOLVED
-        config.state == UNRESOLVED
-
-        and:
-        1 * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> false
-        0 * _._
     }
 
     def "resolving configuration marks parent configuration as observed"() {
@@ -978,7 +958,7 @@ class DefaultConfigurationSpec extends Specification {
         config.resolve()
 
         then:
-        parent.observedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
+        parent.observedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
     }
 
     def "resolving configuration puts it into the right state and broadcasts events"() {
@@ -1001,14 +981,12 @@ class DefaultConfigurationSpec extends Specification {
         _ * listenerBroadcaster.getSource() >> listener
         1 * listener.beforeResolve(config.incoming)
         1 * listener.afterResolve(config.incoming)
-        config.resolvedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
         config.state == RESOLVED
     }
 
-    def "resolving configuration for task dependencies, and then resolving it for results does not re-resolve configuration"() {
+    def "can determine task dependencies when graph resolution is required"() {
         def config = conf("conf")
-        def result = Mock(ResolutionResult)
-        resolves(config, result, Mock(ResolvedConfiguration))
 
         given:
         _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> true
@@ -1017,40 +995,139 @@ class DefaultConfigurationSpec extends Specification {
         config.getBuildDependencies()
 
         then:
-        config.resolvedState == ConfigurationInternal.InternalState.TASK_DEPENDENCIES_RESOLVED
+        config.resolvedState == ConfigurationInternal.InternalState.GRAPH_RESOLVED
         config.state == RESOLVED
 
-        when:
-        config.incoming.getResolutionResult()
-
-        then:
-        0 * resolver.resolve(_)
-        config.resolvedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
-        config.state == RESOLVED
+        and:
+        1 * resolver.resolveGraph(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.graphResolved(Stub(ResolutionResult), Stub(ResolvedLocalComponentsResult), Stub(FileDependencyResults))
+        }
+        0 * resolver._
     }
 
-    def "resolving configuration for results, and then resolving it for task dependencies does not re-resolve configuration"() {
+    def "can determine task dependencies when graph resolution is not"() {
         def config = conf("conf")
-        def result = Mock(ResolutionResult)
 
         given:
-        _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> true
-
-        when:
-        resolves(config, result, Mock(ResolvedConfiguration))
-        config.incoming.getResolutionResult()
-
-        then:
-        config.resolvedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
-        config.state == RESOLVED
+        _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> false
 
         when:
         config.getBuildDependencies()
 
         then:
-        0 * resolver.resolve(_)
-        config.resolvedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
+        config.resolvedState == ConfigurationInternal.InternalState.UNRESOLVED
+        config.state == UNRESOLVED
+
+        and:
+        1 * resolver.resolveBuildDependencies(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.graphResolved(Stub(ResolvedLocalComponentsResult), Stub(FileDependencyResults))
+        }
+        0 * resolver._
+    }
+
+    def "resolving graph for task dependencies, and then resolving it for results does not re-resolve graph"() {
+        def config = conf("conf")
+
+        given:
+        _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> true
+
+        when:
+        config.getBuildDependencies()
+
+        then:
+        config.resolvedState == ConfigurationInternal.InternalState.GRAPH_RESOLVED
         config.state == RESOLVED
+
+        and:
+        1 * resolver.resolveGraph(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.graphResolved(Stub(ResolutionResult), Stub(ResolvedLocalComponentsResult), Stub(FileDependencyResults))
+        }
+        0 * resolver._
+
+        when:
+        config.incoming.getResolutionResult()
+
+        then:
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
+        config.state == RESOLVED
+
+        and:
+        1 * resolver.resolveArtifacts(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.artifactsResolved(Stub(ResolvedConfiguration), Stub(ArtifactResults))
+        }
+        0 * resolver._
+    }
+
+    def "resolves graph when result requested after resolving task dependencies"() {
+        def config = conf("conf")
+
+        given:
+        _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> false
+
+        when:
+        config.getBuildDependencies()
+
+        then:
+        config.resolvedState == ConfigurationInternal.InternalState.UNRESOLVED
+        config.state == UNRESOLVED
+
+        and:
+        1 * resolver.resolveBuildDependencies(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.graphResolved(Stub(ResolvedLocalComponentsResult), Stub(FileDependencyResults))
+        }
+        0 * resolver._
+
+        when:
+        config.incoming.getResolutionResult()
+
+        then:
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
+        config.state == RESOLVED
+
+        and:
+        1 * resolver.resolveGraph(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.graphResolved(Stub(ResolutionResult), Stub(ResolvedLocalComponentsResult), Stub(FileDependencyResults))
+        }
+        1 * resolver.resolveArtifacts(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.artifactsResolved(Stub(ResolvedConfiguration), Stub(ArtifactResults))
+        }
+        0 * resolver._
+    }
+
+    def "resolving configuration for results, and then resolving task dependencies required does not re-resolve graph"() {
+        def config = conf("conf")
+
+        given:
+        _ * resolutionStrategy.resolveGraphToDetermineTaskDependencies() >> graphResolveRequired
+
+        when:
+        config.incoming.getResolutionResult()
+
+        then:
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
+        config.state == RESOLVED
+
+        and:
+        1 * resolver.resolveGraph(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.graphResolved(Stub(ResolutionResult), Stub(ResolvedLocalComponentsResult), Stub(FileDependencyResults))
+        }
+        1 * resolver.resolveArtifacts(config, _) >> { ConfigurationInternal c, ResolverResults r ->
+            r.artifactsResolved(Stub(ResolvedConfiguration), Stub(ArtifactResults))
+        }
+        0 * resolver._
+
+        when:
+        config.getBuildDependencies()
+
+        then:
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
+        config.state == RESOLVED
+
+        and:
+        0 * resolver._
+
+        where:
+        graphResolveRequired << [true, false]
     }
 
     def "resolving configuration twice returns the same result objects"() {
@@ -1068,7 +1145,7 @@ class DefaultConfigurationSpec extends Specification {
 
         then:
         1 * resolvedConfiguration.getFiles(_) >> resolvedFiles
-        config.resolvedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
         config.state == RESOLVED
 
         when:
@@ -1077,9 +1154,9 @@ class DefaultConfigurationSpec extends Specification {
         def nextResolvedConfiguration = config.resolvedConfiguration
 
         then:
-        0 * resolver.resolve(_)
+        0 * resolver.resolveGraph(_)
         1 * resolvedConfiguration.getFiles(_) >> resolvedFiles
-        config.resolvedState == ConfigurationInternal.InternalState.RESULTS_RESOLVED
+        config.resolvedState == ConfigurationInternal.InternalState.ARTIFACTS_RESOLVED
         config.state == RESOLVED
 
         // We get back the same resolution results
@@ -1226,32 +1303,104 @@ class DefaultConfigurationSpec extends Specification {
         given:
         configuration.resolve();
 
-        when: configuration.setTransitive(true)
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.setTransitive(true)
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.setVisible(false)
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.setVisible(false)
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.exclude([:])
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.exclude([:])
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.setExcludeRules([] as Set)
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.setExcludeRules([] as Set)
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.extendsFrom(conf("other"))
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.extendsFrom(conf("other"))
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.dependencies.add(Mock(Dependency))
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.dependencies.add(Mock(Dependency))
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.dependencies.remove(Mock(Dependency))
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.dependencies.remove(Mock(Dependency))
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.artifacts.add(artifact())
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.artifacts.add(artifact())
+        then:
+        thrown(InvalidUserDataException)
 
-        when: configuration.artifacts.remove(artifact())
-        then: thrown(InvalidUserDataException)
+        when:
+        configuration.artifacts.remove(artifact())
+        then:
+        thrown(InvalidUserDataException)
+    }
+
+    def "can define typed attributes"() {
+        def conf = conf()
+        def flavor = Attribute.of('flavor', Flavor) // give it a name and a type
+        def buildType = Attribute.of(BuildType) // infer the name from the type
+
+        when:
+        conf.attribute(flavor, Mock(Flavor) { getName() >> 'free'} )
+        conf.attribute(buildType, Mock(BuildType){ getName() >> 'release'})
+
+        then:
+        conf.hasAttributes()
+        conf.getAttribute(flavor).name == 'free'
+        conf.getAttribute(buildType).name == 'release'
+    }
+
+    def "cannot define two attributes with the same name but different types"() {
+        def conf = conf()
+        def flavor = Attribute.of(Flavor)
+
+        when:
+        conf.attribute(flavor, Mock(Flavor) { getName() >> 'free'} )
+        conf.attribute('flavor', 'paid')
+
+        then:
+        def e = thrown(IllegalArgumentException)
+        e.message == 'Cannot have two attributes with the same name but different types. This container already has an attribute named \'flavor\' of type \'org.gradle.api.internal.artifacts.configurations.DefaultConfigurationSpec$Flavor\' and you are trying to store another one of type \'java.lang.String\''
+    }
+
+    def "can overwrite a configuration attribute"() {
+        def conf = conf()
+        def flavor = Attribute.of(Flavor)
+        conf.attribute(flavor, Mock(Flavor) { getName() >> 'free'})
+
+        when:
+        conf.attribute(flavor, Mock(Flavor) { getName() >> 'paid'} )
+
+        then:
+        conf.getAttribute(flavor).name == 'paid'
+    }
+
+    def "can have two attributes with the same type but different names"() {
+        def conf = conf()
+        def targetPlatform = Attribute.of('targetPlatform', Platform)
+        def runtimePlatform = Attribute.of('runtimePlatform', Platform)
+
+        when:
+        conf.attribute(targetPlatform, Platform.JAVA6 )
+        conf.attribute(runtimePlatform, Platform.JAVA7)
+
+        then:
+        conf.getAttribute(targetPlatform) == Platform.JAVA6
+        conf.getAttribute(runtimePlatform) == Platform.JAVA7
     }
 
     def dumpString() {
@@ -1279,7 +1428,6 @@ All Dependencies:
 All Artifacts:
    none"""
     }
-
 
     // You need to wrap this in an interaction {} block when calling it
     private ResolvedConfiguration resolveConfig(ConfigurationInternal config, ConfigurationResolver dependencyResolver = resolver) {
@@ -1309,13 +1457,20 @@ All Artifacts:
 
     private DefaultPublishArtifact artifact(Map props = [:]) {
         new DefaultPublishArtifact(
-                props.name ?: "artifact",
-                props.extension ?: "artifact",
-                props.type,
-                props.classifier,
-                props.date,
-                props.file,
-                props.tasks ?: []
+            props.name ?: "artifact",
+            props.extension ?: "artifact",
+            props.type,
+            props.classifier,
+            props.date,
+            props.file,
+            props.tasks ?: []
         )
+    }
+
+    interface Flavor extends Named {}
+    interface BuildType extends Named {}
+    enum Platform {
+        JAVA6,
+        JAVA7
     }
 }

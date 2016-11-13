@@ -17,6 +17,7 @@ package org.gradle.build.docs
 
 import org.gradle.api.InvalidUserDataException
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.FileTree
 import org.gradle.api.file.FileVisitDetails
 import org.gradle.internal.classloader.ClasspathUtil
 import org.gradle.api.tasks.*
@@ -37,7 +38,20 @@ class Docbook2Xhtml extends SourceTask {
     @InputDirectory
     File stylesheetsDir
 
+    @Internal
     String stylesheetName
+
+    @PathSensitive(PathSensitivity.NONE)
+    @InputFile
+    File getStylesheetFile() {
+        new File(stylesheetsDir, stylesheetName)
+    }
+
+    @Override
+    @PathSensitive(PathSensitivity.RELATIVE)
+    FileTree getSource() {
+        return super.getSource()
+    }
 
     @PathSensitive(PathSensitivity.RELATIVE)
     @Optional
@@ -68,11 +82,11 @@ class Docbook2Xhtml extends SourceTask {
             }
             project.javaexec {
                 main = XslTransformer.name
-                args new File(stylesheetsDir, stylesheetName).absolutePath
+                args stylesheetFile.absolutePath
                 args fvd.file.absolutePath
                 args result.absolutePath
                 args destDir ?: ""
-                jvmArgs '-Xmx256m'
+                jvmArgs '-Xmx1024m'
                 classpath ClasspathUtil.getClasspathForClass(XslTransformer)
                 classpath this.classpath
                 classpath new File(stylesheetsDir, 'extensions/xalan27.jar')

@@ -19,7 +19,6 @@ package org.gradle.performance
 import org.gradle.performance.categories.JavaPerformanceTest
 import org.junit.experimental.categories.Category
 import spock.lang.Unroll
-import static org.gradle.performance.results.Flakiness.*
 
 @Category([JavaPerformanceTest])
 class TestExecutionPerformanceTest extends AbstractCrossVersionPerformanceTest {
@@ -33,20 +32,20 @@ class TestExecutionPerformanceTest extends AbstractCrossVersionPerformanceTest {
         // TODO(pepper): Revert this to 'last' when 3.2 is released
         // The regression was determined acceptable in this discussion:
         // https://issues.gradle.org/browse/GRADLE-1346
-        runner.targetVersions = ['3.2-20161012120730+0000']
+        runner.targetVersions = ['3.2-rc-1']
         runner.useDaemon = true
 
         when:
-        def result = runner.run(flakiness)
+        def result = runner.run()
 
         then:
-        result.assertCurrentVersionHasNotRegressed(flakiness)
+        result.assertCurrentVersionHasNotRegressed()
 
         where:
-        testProject         | flakiness
-        "withTestNG"        | not_flaky
-        "withJUnit"         | not_flaky
-        "withVerboseTestNG" | flaky
-        "withVerboseJUnit"  | flaky
+        testProject         | _
+        "withTestNG"        | _
+        "withJUnit"         | _
+        "withVerboseTestNG" | _
+        "withVerboseJUnit"  | _
     }
 }

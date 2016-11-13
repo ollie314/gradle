@@ -17,7 +17,7 @@
 package org.gradle
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.internal.nativeintegration.jansi.JansiLibraryFactory
+import org.gradle.internal.nativeintegration.jansi.JansiStorageLocator
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Issue
@@ -27,9 +27,16 @@ class NativeServicesIntegrationTest extends AbstractIntegrationSpec {
     @Rule
     final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
 
-    def libraryFactory = new JansiLibraryFactory()
-    File jansiDir = new File(executer.gradleUserHomeDir, 'native/jansi')
-    File library = new File(jansiDir, libraryFactory.create().path)
+    def nativeDir = new File(executer.gradleUserHomeDir, 'native')
+    def library
+
+    def setup() {
+        def jansiLibraryLocator = new JansiStorageLocator()
+        def jansiStorage = jansiLibraryLocator.locate(nativeDir)
+        library = jansiStorage.targetLibFile
+
+        executer.requireGradleDistribution().withNoExplicitTmpDir()
+    }
 
     def "native services libs are unpacked to gradle user home dir"() {
         given:
@@ -39,14 +46,11 @@ class NativeServicesIntegrationTest extends AbstractIntegrationSpec {
         succeeds("help")
 
         then:
-        library.exists()
-        library.size() > 0
-        assertNoFilesInTmp()
+        nativeDir.directory
     }
 
     @Issue("GRADLE-3573")
     def "jansi library is unpacked to gradle user home dir and isn't overwritten if existing"() {
-        executer.requireGradleDistribution().withNoExplicitTmpDir()
         String tmpDirJvmOpt = "-Djava.io.tmpdir=$tmpDir.testDirectory.absolutePath"
         executer.withBuildJvmOpts(tmpDirJvmOpt)
 

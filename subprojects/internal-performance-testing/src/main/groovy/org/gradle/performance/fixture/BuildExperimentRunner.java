@@ -18,6 +18,7 @@ package org.gradle.performance.fixture;
 
 import org.gradle.api.Action;
 import org.gradle.internal.UncheckedException;
+import org.gradle.internal.concurrent.CompositeStoppable;
 import org.gradle.performance.measure.MeasuredOperation;
 import org.gradle.performance.results.MeasuredOperationList;
 import org.gradle.util.GFileUtils;
@@ -33,10 +34,10 @@ public class BuildExperimentRunner {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BuildExperimentRunner.class);
     public static final String HEAP_DUMP_PROPERTY = "org.gradle.performance.heapdump";
+    private static final File OS_PREPARE_SCRIPT = new File(System.getProperty("org.gradle.performance.os_prepare_script", "/usr/local/bin/gradle_perf_test_prepare_next.sh"));
 
     private final DataCollector dataCollector;
     private final GradleSessionProvider executerProvider;
-    private final OperationTimer timer = new OperationTimer();
     private final HonestProfilerCollector honestProfiler;
 
     public enum Phase {
@@ -46,10 +47,6 @@ public class BuildExperimentRunner {
 
     protected DataCollector getDataCollector() {
         return dataCollector;
-    }
-
-    protected OperationTimer getTimer() {
-        return timer;
     }
 
     public BuildExperimentRunner(GradleSessionProvider executerProvider) {
@@ -91,6 +88,7 @@ public class BuildExperimentRunner {
                 performMeasurements(session, experiment, results, workingDirectory);
             } finally {
                 session.cleanup();
+                CompositeStoppable.stoppable(dataCollector).stop();
             }
         }
     }
@@ -114,9 +112,35 @@ public class BuildExperimentRunner {
     }
 
     protected void performMeasurements(final InvocationExecutorProvider session, BuildExperimentSpec experiment, MeasuredOperationList results, File projectDir) {
+        prepareNextExperiment(experiment, projectDir);
         doWarmup(experiment, projectDir, session);
         waitForMillis(experiment, experiment.getSleepAfterWarmUpMillis());
         doMeasure(experiment, results, projectDir, session);
+    }
+
+    protected void prepareNextExperiment(BuildExperimentSpec experiment, File projectDir) {
+        runOsPrepareNextTestScript();
+    }
+
+    // the preparation script can prepare the OS for a next measurement round by flushing OS caches
+    private void runOsPrepareNextTestScript() {
+        if (OS_PREPARE_SCRIPT.exists()) {
+            try {
+                String scriptPath = OS_PREPARE_SCRIPT.getPath();
+                System.out.println("Running " + scriptPath);
+                ProcessBuilder processBuilder = new ProcessBuilder().command(scriptPath);
+                processBuilder.inheritIO();
+                Process process = processBuilder.start();
+                int exitCode = process.waitFor();
+                if (exitCode == 0) {
+                    System.out.println("Done.");
+                } else {
+                    System.out.println("Failed with error code " + exitCode);
+                }
+            } catch (Exception e) {
+                LOGGER.warn("Problem running preparation script " + OS_PREPARE_SCRIPT, e);
+            }
+        }
     }
 
     private void doMeasure(BuildExperimentSpec experiment, MeasuredOperationList results, File projectDir, InvocationExecutorProvider session) {
@@ -178,9 +202,9 @@ public class BuildExperimentRunner {
             return experiment.getInvocationCount();
         }
         if (usesDaemon(experiment)) {
-            return 20;
+            return 10;
         } else {
-            return 40;
+            return 14;
         }
     }
 
@@ -193,9 +217,9 @@ public class BuildExperimentRunner {
             return experiment.getWarmUpCount();
         }
         if (usesDaemon(experiment)) {
-            return 10;
+            return 20;
         } else {
-            return 1;
+            return 4;
         }
     }
 
@@ -209,18 +233,18 @@ public class BuildExperimentRunner {
         return false;
     }
 
-    // the JIT compiler seems to wait for idle period before compiling
+    // the JIT compiler queues up C1/C2 JIT compilations
+    // An idle period is needed to make it more likely that the JIT compilation queues have been drained before
+    // the next measurement round starts
+    // This idle period is needed for both non-daemon and daemon tests
     protected void waitForMillis(BuildExperimentSpec experiment, long sleepTimeMillis) {
-        InvocationSpec invocation = experiment.getInvocation();
-        if (invocation instanceof GradleInvocationSpec) {
-            if (((GradleInvocationSpec) invocation).getBuildWillRunInDaemon() && sleepTimeMillis > 0L) {
-                System.out.println();
-                System.out.println(String.format("Waiting %d ms", sleepTimeMillis));
-                try {
-                    Thread.sleep(sleepTimeMillis);
-                } catch (InterruptedException e) {
-                    throw UncheckedException.throwAsUncheckedException(e);
-                }
+        if (sleepTimeMillis > 0L) {
+            System.out.println();
+            System.out.println(String.format("Waiting %d ms to let JIT compilation queues to drain before measuring...", sleepTimeMillis));
+            try {
+                Thread.sleep(sleepTimeMillis);
+            } catch (InterruptedException e) {
+                throw UncheckedException.throwAsUncheckedException(e);
             }
         }
     }
@@ -230,18 +254,18 @@ public class BuildExperimentRunner {
         final MeasuredOperationList results,
         final BuildExperimentInvocationInfo invocationInfo) {
         BuildExperimentSpec experiment = invocationInfo.getBuildExperimentSpec();
-        final Runnable runner = session.runner(invocationInfo, wrapInvocationCustomizer(invocationInfo, createInvocationCustomizer(invocationInfo)));
+        final Action<MeasuredOperation> runner = session.runner(invocationInfo, wrapInvocationCustomizer(invocationInfo, createInvocationCustomizer(invocationInfo)));
 
         if (experiment.getListener() != null) {
             experiment.getListener().beforeInvocation(invocationInfo);
         }
 
-        MeasuredOperation operation = timer.measure(new Action<MeasuredOperation>() {
-            @Override
-            public void execute(MeasuredOperation measuredOperation) {
-                runner.run();
-            }
-        });
+        MeasuredOperation operation = new MeasuredOperation();
+        try {
+            runner.execute(operation);
+        } catch (Exception e) {
+            operation.setException(e);
+        }
 
         final AtomicBoolean omitMeasurement = new AtomicBoolean();
         if (experiment.getListener() != null) {
@@ -256,11 +280,13 @@ public class BuildExperimentRunner {
         if (!omitMeasurement.get()) {
             if (operation.getException() == null) {
                 dataCollector.collect(invocationInfo, operation);
-            }
-            if (operation.isValid()) {
-                results.add(operation);
+                if (operation.isValid()) {
+                    results.add(operation);
+                } else {
+                    LOGGER.error("Discarding invalid operation record {}", operation);
+                }
             } else {
-                LOGGER.error("Discarding invalid operation record {}", operation);
+                LOGGER.error("Discarding invalid operation record " + operation, operation.getException());
             }
         }
     }
