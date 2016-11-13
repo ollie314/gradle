@@ -26,6 +26,7 @@ import org.gradle.api.internal.artifacts.repositories.PublicationAwareRepository
 import org.gradle.internal.component.external.model.BuildableIvyModulePublishMetadata;
 import org.gradle.internal.component.external.model.DefaultIvyModulePublishMetadata;
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier;
+import org.gradle.internal.component.external.model.IvyModuleArtifactPublishMetadata;
 import org.gradle.internal.component.external.model.IvyModulePublishMetadata;
 import org.gradle.internal.component.model.DefaultIvyArtifactName;
 import org.gradle.internal.component.model.IvyArtifactName;
@@ -55,13 +56,14 @@ public class IvyBackedArtifactPublisher implements ArtifactPublisher {
         if (descriptor != null) {
             // Convert once, in order to write the Ivy descriptor with _all_ configurations
             IvyModulePublishMetadata publishMetaData = toPublishMetaData(module, allConfigurations);
+            validatePublishMetaData(publishMetaData);
             ivyModuleDescriptorWriter.write(publishMetaData, descriptor);
         }
 
         // Convert a second time with only the published configurations: this ensures that the correct artifacts are included
         BuildableIvyModulePublishMetadata publishMetaData = toPublishMetaData(module, configurationsToPublish);
         if (descriptor != null) {
-            IvyArtifactName artifact = DefaultIvyArtifactName.of("ivy", "ivy", "xml");
+            IvyArtifactName artifact = new DefaultIvyArtifactName("ivy", "ivy", "xml");
             publishMetaData.addArtifact(artifact, descriptor);
         }
 
@@ -72,6 +74,14 @@ public class IvyBackedArtifactPublisher implements ArtifactPublisher {
         }
 
         dependencyPublisher.publish(publishResolvers, publishMetaData);
+    }
+
+    private void validatePublishMetaData(IvyModulePublishMetadata publishMetaData) {
+        for (IvyModuleArtifactPublishMetadata metadata : publishMetaData.getArtifacts()) {
+            if (metadata.getFile().isDirectory()) {
+                throw new IllegalArgumentException("Cannot publish a directory (" + metadata.getFile() + ")");
+            }
+        }
     }
 
     private BuildableIvyModulePublishMetadata toPublishMetaData(Module module, Set<? extends Configuration> configurations) {

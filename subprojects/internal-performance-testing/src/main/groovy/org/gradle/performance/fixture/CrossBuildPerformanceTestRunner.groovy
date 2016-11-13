@@ -16,7 +16,7 @@
 
 package org.gradle.performance.fixture
 
-import org.gradle.api.JavaVersion
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
 import org.gradle.internal.jvm.Jvm
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.performance.results.CrossBuildPerformanceResults
@@ -25,8 +25,8 @@ import org.gradle.performance.results.MeasuredOperationList
 import org.gradle.util.GradleVersion
 
 class CrossBuildPerformanceTestRunner extends AbstractGradleBuildPerformanceTestRunner<CrossBuildPerformanceResults> {
-    public CrossBuildPerformanceTestRunner(BuildExperimentRunner experimentRunner, DataReporter<CrossBuildPerformanceResults> dataReporter) {
-        super(experimentRunner, dataReporter)
+    public CrossBuildPerformanceTestRunner(BuildExperimentRunner experimentRunner, DataReporter<CrossBuildPerformanceResults> dataReporter, IntegrationTestBuildContext buildContext) {
+        super(experimentRunner, dataReporter, buildContext)
     }
 
     protected void defaultSpec(BuildExperimentSpec.Builder builder) {
@@ -40,12 +40,7 @@ class CrossBuildPerformanceTestRunner extends AbstractGradleBuildPerformanceTest
         super.finalizeSpec(builder)
         if (builder instanceof GradleBuildExperimentSpec.GradleBuilder) {
             def invocation = (GradleInvocationSpec.InvocationBuilder) builder.invocation
-            if (!invocation.gradleOptions) {
-                invocation.gradleOptions = ['-Xms2g', '-Xmx2g']
-                if (!JavaVersion.current().isJava8Compatible()) {
-                    invocation.gradleOptions << '-XX:MaxPermSize=256m'
-                }
-            }
+            invocation.gradleOptions = customizeJvmOptions(invocation.gradleOptions)
         }
     }
 
@@ -59,7 +54,7 @@ class CrossBuildPerformanceTestRunner extends AbstractGradleBuildPerformanceTest
             versionUnderTest: GradleVersion.current().getVersion(),
             vcsBranch: Git.current().branchName,
             vcsCommits: [Git.current().commitId],
-            startTime: System.currentTimeMillis(),
+            startTime: timeProvider.getCurrentTime(),
             channel: determineChannel()
         )
     }

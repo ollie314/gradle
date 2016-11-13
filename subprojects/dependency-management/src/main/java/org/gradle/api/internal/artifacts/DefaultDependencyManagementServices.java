@@ -16,6 +16,7 @@
 package org.gradle.api.internal.artifacts;
 
 import org.gradle.StartParameter;
+import org.gradle.api.AttributesSchema;
 import org.gradle.api.artifacts.PublishArtifact;
 import org.gradle.api.artifacts.dsl.ArtifactHandler;
 import org.gradle.api.artifacts.dsl.ComponentMetadataHandler;
@@ -40,7 +41,6 @@ import org.gradle.api.internal.artifacts.ivyservice.DefaultConfigurationResolver
 import org.gradle.api.internal.artifacts.ivyservice.ErrorHandlingConfigurationResolver;
 import org.gradle.api.internal.artifacts.ivyservice.IvyContextManager;
 import org.gradle.api.internal.artifacts.ivyservice.IvyContextualArtifactPublisher;
-import org.gradle.api.internal.artifacts.ivyservice.SelfResolvingDependencyConfigurationResolver;
 import org.gradle.api.internal.artifacts.ivyservice.ShortCircuitEmptyConfigurationResolver;
 import org.gradle.api.internal.artifacts.ivyservice.dependencysubstitution.DependencySubstitutionRules;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.ResolveIvyFactory;
@@ -60,6 +60,7 @@ import org.gradle.api.internal.component.ComponentTypeRegistry;
 import org.gradle.api.internal.file.FileCollectionFactory;
 import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.filestore.ivy.ArtifactIdentifierFileStore;
+import org.gradle.api.internal.project.DefaultConfigurationAttributesSchema;
 import org.gradle.initialization.ProjectAccessListener;
 import org.gradle.internal.authentication.AuthenticationSchemeRegistry;
 import org.gradle.internal.component.external.model.ModuleComponentArtifactMetadata;
@@ -94,6 +95,10 @@ public class DefaultDependencyManagementServices implements DependencyManagement
     }
 
     private static class DependencyResolutionScopeServices {
+        AttributesSchema createConfigurationAttributesSchema() {
+            return new DefaultConfigurationAttributesSchema();
+        }
+
         BaseRepositoryFactory createBaseRepositoryFactory(LocalMavenRepositoryLocator localMavenRepositoryLocator, Instantiator instantiator, FileResolver fileResolver,
                                                           RepositoryTransportFactory repositoryTransportFactory, LocallyAvailableResourceFinder<ModuleComponentArtifactMetadata> locallyAvailableResourceFinder,
                                                           ArtifactIdentifierFileStore artifactIdentifierFileStore,
@@ -170,18 +175,18 @@ public class DefaultDependencyManagementServices implements DependencyManagement
                                                        ComponentIdentifierFactory componentIdentifierFactory,
                                                        CacheLockingManager cacheLockingManager,
                                                        ResolutionResultsStoreFactory resolutionResultsStoreFactory,
-                                                       StartParameter startParameter) {
+                                                       StartParameter startParameter,
+                                                       AttributesSchema attributesSchema) {
             return new ErrorHandlingConfigurationResolver(
                     new ShortCircuitEmptyConfigurationResolver(
-                            new SelfResolvingDependencyConfigurationResolver(
-                                    new DefaultConfigurationResolver(
-                                            artifactDependencyResolver,
-                                            repositories,
-                                            metadataHandler,
-                                            cacheLockingManager,
-                                            resolutionResultsStoreFactory,
-                                            startParameter.isBuildProjectDependencies())),
-                            componentIdentifierFactory)
+                        new DefaultConfigurationResolver(
+                            artifactDependencyResolver,
+                            repositories,
+                            metadataHandler,
+                            cacheLockingManager,
+                            resolutionResultsStoreFactory,
+                            startParameter.isBuildProjectDependencies(), attributesSchema),
+                        componentIdentifierFactory)
             );
         }
 

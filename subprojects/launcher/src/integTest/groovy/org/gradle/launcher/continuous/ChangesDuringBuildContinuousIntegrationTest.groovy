@@ -21,10 +21,9 @@ import spock.lang.Unroll
 
 // Continuous build will trigger a rebuild when an input file is changed during build execution
 class ChangesDuringBuildContinuousIntegrationTest extends Java7RequiringContinuousIntegrationTest {
-    protected int getMinimumBuildTimeMillis() {
-        // Polling interval is 10 seconds on MacOSX so make build last longer than that so MacOSX can detect changes reliably in the tests
-        // TODO: This makes the test really, really slow on OSX.  We really need a native inotify-like solution for OSX
-        OperatingSystem.current().isMacOsX() ? 15000 : super.getMinimumBuildTimeMillis()
+    def setup() {
+        def quietPeriod = OperatingSystem.current().isMacOsX() ? 2000 : 250
+        waitAtEndOfBuildForQuietPeriod(quietPeriod)
     }
 
     def "should trigger rebuild when java source file is changed during build execution"() {
@@ -37,9 +36,9 @@ apply plugin: 'java'
 gradle.taskGraph.afterTask { Task task ->
     if(task.path == ':classes' && !file('changetrigged').exists()) {
        sleep(500) // attempt to workaround JDK-8145981
+       println "Modifying 'Thing.java' after initial compile task"
        file("src/main/java/Thing.java").text = "class Thing { private static final boolean CHANGED=true; }"
        file('changetrigged').text = 'done'
-       sleep(500) // attempt to workaround JDK-8145981
     }
 }
 """
@@ -56,7 +55,7 @@ gradle.taskGraph.afterTask { Task task ->
         def classloader = new URLClassLoader([file("build/classes/main").toURI().toURL()] as URL[])
 
         then:
-        assert classloader.loadClass('Thing').getDeclaredField("CHANGED") != null
+        assert classloader.loadClass('Thing').getDeclaredFields()*.name == ["CHANGED"]
     }
 
     def "new build should be triggered when input files to tasks are changed after each task has been executed, but before the build has completed"(changingInput) {

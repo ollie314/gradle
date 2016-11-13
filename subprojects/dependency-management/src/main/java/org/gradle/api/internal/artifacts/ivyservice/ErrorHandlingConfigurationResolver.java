@@ -17,17 +17,26 @@ package org.gradle.api.internal.artifacts.ivyservice;
 
 import groovy.lang.Closure;
 import org.gradle.api.Action;
-import org.gradle.api.artifacts.*;
+import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.LenientConfiguration;
+import org.gradle.api.artifacts.ResolveException;
+import org.gradle.api.artifacts.ResolvedArtifact;
+import org.gradle.api.artifacts.ResolvedConfiguration;
+import org.gradle.api.artifacts.ResolvedDependency;
+import org.gradle.api.artifacts.UnresolvedDependency;
 import org.gradle.api.artifacts.result.DependencyResult;
 import org.gradle.api.artifacts.result.ResolutionResult;
+import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.artifacts.result.ResolvedComponentResult;
 import org.gradle.api.internal.artifacts.ConfigurationResolver;
 import org.gradle.api.internal.artifacts.ResolveContext;
 import org.gradle.api.internal.artifacts.ResolverResults;
 import org.gradle.api.internal.artifacts.configurations.ConfigurationInternal;
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ArtifactResults;
 import org.gradle.api.specs.Spec;
 
 import java.io.File;
+import java.util.Collection;
 import java.util.Set;
 
 public class ErrorHandlingConfigurationResolver implements ConfigurationResolver {
@@ -38,29 +47,43 @@ public class ErrorHandlingConfigurationResolver implements ConfigurationResolver
     }
 
     @Override
-    public void resolve(ConfigurationInternal configuration, ResolverResults results) throws ResolveException {
+    public void resolveBuildDependencies(ConfigurationInternal configuration, ResolverResults results) {
         try {
-            delegate.resolve(configuration, results);
-        } catch (final Throwable e) {
+            delegate.resolveBuildDependencies(configuration, results);
+        } catch (Throwable e) {
             results.failed(wrapException(e, configuration));
-            results.withResolvedConfiguration(new BrokenResolvedConfiguration(e, configuration));
+            BrokenResolvedConfiguration broken = new BrokenResolvedConfiguration(e, configuration);
+            results.artifactsResolved(broken, broken);
+        }
+    }
+
+    @Override
+    public void resolveGraph(ConfigurationInternal configuration, ResolverResults results) throws ResolveException {
+        try {
+            delegate.resolveGraph(configuration, results);
+        } catch (Throwable e) {
+            results.failed(wrapException(e, configuration));
+            BrokenResolvedConfiguration broken = new BrokenResolvedConfiguration(e, configuration);
+            results.artifactsResolved(broken, broken);
             return;
         }
+
         ResolutionResult wrappedResult = new ErrorHandlingResolutionResult(results.getResolutionResult(), configuration);
-        results.resolved(wrappedResult, results.getResolvedLocalComponents());
+        results.graphResolved(wrappedResult, results.getResolvedLocalComponents(), results.getFileDependencies());
     }
 
     @Override
     public void resolveArtifacts(ConfigurationInternal configuration, ResolverResults results) throws ResolveException {
         try {
             delegate.resolveArtifacts(configuration, results);
-        } catch (ResolveException e) {
-            results.withResolvedConfiguration(new BrokenResolvedConfiguration(e, configuration));
+        } catch (Throwable e) {
+            BrokenResolvedConfiguration broken = new BrokenResolvedConfiguration(e, configuration);
+            results.artifactsResolved(broken, broken);
             return;
         }
 
         ResolvedConfiguration wrappedConfiguration = new ErrorHandlingResolvedConfiguration(results.getResolvedConfiguration(), configuration);
-        results.withResolvedConfiguration(wrappedConfiguration);
+        results.artifactsResolved(wrappedConfiguration, results.getArtifactResults());
     }
 
     private static ResolveException wrapException(Throwable e, ResolveContext resolveContext) {
@@ -234,7 +257,7 @@ public class ErrorHandlingConfigurationResolver implements ConfigurationResolver
         }
     }
 
-    private static class BrokenResolvedConfiguration implements ResolvedConfiguration {
+    private static class BrokenResolvedConfiguration implements ResolvedConfiguration, ArtifactResults {
         private final Throwable e;
         private final ConfigurationInternal configuration;
 
@@ -268,6 +291,16 @@ public class ErrorHandlingConfigurationResolver implements ConfigurationResolver
         }
 
         public Set<ResolvedArtifact> getResolvedArtifacts() throws ResolveException {
+            throw wrapException(e, configuration);
+        }
+
+        @Override
+        public void collectFiles(Spec<? super Dependency> dependencySpec, Collection<File> dest) throws ResolveException {
+            throw wrapException(e, configuration);
+        }
+
+        @Override
+        public void collectArtifacts(Collection<? super ResolvedArtifactResult> dest) {
             throw wrapException(e, configuration);
         }
     }

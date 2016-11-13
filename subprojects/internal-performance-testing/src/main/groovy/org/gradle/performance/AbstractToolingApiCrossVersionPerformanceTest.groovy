@@ -17,9 +17,9 @@
 package org.gradle.performance
 
 import groovy.transform.InheritConstructors
+import org.gradle.integtests.fixtures.executer.ForkingUnderDevelopmentGradleDistribution
 import org.gradle.integtests.fixtures.executer.GradleDistribution
 import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
-import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution
 import org.gradle.integtests.fixtures.versions.ReleasedVersionDistributions
 import org.gradle.integtests.tooling.fixture.ToolingApi
 import org.gradle.integtests.tooling.fixture.ToolingApiClasspathProvider
@@ -27,6 +27,8 @@ import org.gradle.integtests.tooling.fixture.ToolingApiDistributionResolver
 import org.gradle.internal.classloader.ClasspathUtil
 import org.gradle.internal.jvm.Jvm
 import org.gradle.internal.os.OperatingSystem
+import org.gradle.internal.time.TimeProvider
+import org.gradle.internal.time.TrueTimeProvider
 import org.gradle.performance.fixture.BuildExperimentInvocationInfo
 import org.gradle.performance.fixture.BuildExperimentListener
 import org.gradle.performance.fixture.BuildExperimentRunner
@@ -37,6 +39,7 @@ import org.gradle.performance.fixture.Git
 import org.gradle.performance.fixture.InvocationSpec
 import org.gradle.performance.fixture.OperationTimer
 import org.gradle.performance.fixture.PerformanceTestDirectoryProvider
+import org.gradle.performance.fixture.PerformanceTestJvmOptions
 import org.gradle.performance.fixture.TestProjectLocator
 import org.gradle.performance.fixture.TestScenarioSelector
 import org.gradle.performance.measure.DataAmount
@@ -53,12 +56,14 @@ import org.gradle.tooling.ProjectConnection
 import org.gradle.util.GFileUtils
 import org.gradle.util.GradleVersion
 import org.junit.Assume
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import spock.lang.Shared
 import spock.lang.Specification
 
 abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specification {
-
     protected final static ReleasedVersionDistributions RELEASES = new ReleasedVersionDistributions()
-    protected final static UnderDevelopmentGradleDistribution CURRENT = new UnderDevelopmentGradleDistribution()
+    protected final static GradleDistribution CURRENT = new ForkingUnderDevelopmentGradleDistribution()
 
     static def resultStore = new CrossVersionResultsStore()
     final TestNameTestDirectoryProvider temporaryFolder = new PerformanceTestDirectoryProvider()
@@ -71,8 +76,15 @@ abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specificati
 
     protected ClassLoader tapiClassLoader
 
+    @Shared
+    private Logger logger
+
     public <T> Class<T> tapiClass(Class<T> clazz) {
         tapiClassLoader.loadClass(clazz.name)
+    }
+
+    def setupSpec() {
+        logger = LoggerFactory.getLogger(getClass())
     }
 
     void experiment(String projectName, String displayName, @DelegatesTo(ToolingApiExperimentSpec) Closure<?> spec) {
@@ -91,6 +103,12 @@ abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specificati
         System.addShutdownHook {
             ((Closeable) resultStore).close()
         }
+    }
+
+    protected List<String> createDefaultJvmOptions(String heapSize = '1g') {
+        List<String> jvmOptions = PerformanceTestJvmOptions.customizeJvmOptions(["-Xms${heapSize}", "-Xmx${heapSize}"])
+        jvmOptions << '-Dorg.gradle.performance.measurement.disabled=true'
+        return jvmOptions
     }
 
     @InheritConstructors
@@ -116,6 +134,7 @@ abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specificati
     }
 
     private class Measurement implements ToolingApiClasspathProvider {
+        private final TimeProvider timeProvider = new TrueTimeProvider();
 
         private CrossVersionPerformanceResults run() {
             def testId = experimentSpec.displayName
@@ -134,7 +153,7 @@ abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specificati
                 versionUnderTest: GradleVersion.current().getVersion(),
                 vcsBranch: Git.current().branchName,
                 vcsCommits: [Git.current().commitId],
-                startTime: System.currentTimeMillis(),
+                startTime: timeProvider.getCurrentTime(),
                 tasks: [],
                 args: [],
                 gradleOpts: [],
@@ -168,7 +187,7 @@ abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specificati
                 resolver.stop()
             }
 
-            results.endTime = System.currentTimeMillis();
+            results.endTime = timeProvider.getCurrentTime()
 
             results.assertEveryBuildSucceeds()
             resultStore.report(results)
@@ -232,7 +251,15 @@ abstract class AbstractToolingApiCrossVersionPerformanceTest extends Specificati
                         experimentSpec.listener.afterInvocation(info, measuredOperation, cb)
                     }
                     if (!omit) {
-                        versionResults.add(measuredOperation)
+                        if (measuredOperation.getException() == null) {
+                            if (measuredOperation.isValid()) {
+                                versionResults.add(measuredOperation)
+                            } else {
+                                logger.error("Discarding invalid operation record {}", measuredOperation)
+                            }
+                        } else {
+                            logger.error("Discarding invalid operation record " + measuredOperation, measuredOperation.getException())
+                        }
                     }
                     sleep(sleepAfterTestRoundMillis)
                 }

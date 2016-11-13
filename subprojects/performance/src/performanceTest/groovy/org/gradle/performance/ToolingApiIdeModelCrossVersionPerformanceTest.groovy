@@ -38,13 +38,10 @@ class ToolingApiIdeModelCrossVersionPerformanceTest extends AbstractToolingApiCr
             invocationCount = 30
             sleepAfterTestRoundMillis = 25
             // rebaselined because of https://github.com/gradle/performance/issues/99
-            targetVersions = ['3.2-20161010071950+0000']
+            targetVersions = ['3.2-rc-1']
             action {
                 def model = model(tapiClass(EclipseProject))
-                    .setJvmArguments(
-                    '-Xms1g', '-Xmx1g',
-                    '-Dorg.gradle.performance.measurement.disabled=true'
-                ).get()
+                    .setJvmArguments(createDefaultJvmOptions()).get()
                 // we must actually do something to highlight some performance issues
                 forEachEclipseProject(model) {
                     buildCommands.each {
@@ -143,13 +140,7 @@ class ToolingApiIdeModelCrossVersionPerformanceTest extends AbstractToolingApiCr
             action {
                 def version = tapiClass(GradleVersion).current().version
                 def model = model(tapiClass(IdeaProject))
-                    .setJvmArguments(
-                    //'-XX:+UnlockDiagnosticVMOptions', '-XX:+DebugNonSafepoints',
-                    '-Xms1g', '-Xmx1g',
-                    '-Dorg.gradle.performance.measurement.disabled=true'
-                    //"-agentpath:/home/cchampeau/TOOLS/yjp-2016.02/bin/linux-x86-64/libyjpagent.so=port=$port",
-                    // "-agentpath:/home/cchampeau/TOOLS/honest-profiler/liblagent.so=interval=7,logPath=/tmp/fg/honestprofiler_${version}.hpl,port=${port},host=127.0.0.1,start=0",
-                ).get()
+                    .setJvmArguments(createDefaultJvmOptions()).get()
                 // we must actually do something to highlight some performance issues
                 model.with {
                     name
@@ -194,10 +185,10 @@ class ToolingApiIdeModelCrossVersionPerformanceTest extends AbstractToolingApiCr
         where:
         // rebaselined because of https://github.com/gra
         template          | targetGradleVersions
-        "smallOldJava"    | ['3.2-20161010071950+0000']
-        "mediumOldJava"   | ['3.2-20161010071950+0000']
-        "bigOldJava"      | ['3.2-20161010071950+0000']
-        "lotDependencies" | ['3.2-20161010071950+0000']
+        "smallOldJava"    | ['3.2-rc-1']
+        "mediumOldJava"   | ['3.2-rc-1']
+        "bigOldJava"      | ['3.2-rc-1']
+        "lotDependencies" | ['3.2-rc-1']
     }
 
     private static void forEachEclipseProject(def elm, @DelegatesTo(value=EclipseProject) Closure<?> action) {

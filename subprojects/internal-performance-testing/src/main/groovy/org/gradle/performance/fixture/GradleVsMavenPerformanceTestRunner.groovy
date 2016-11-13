@@ -16,6 +16,7 @@
 package org.gradle.performance.fixture
 
 import groovy.transform.CompileStatic
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
 import org.gradle.internal.jvm.Jvm
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.performance.results.DataReporter
@@ -30,8 +31,8 @@ class GradleVsMavenPerformanceTestRunner extends AbstractGradleBuildPerformanceT
 
     final M2Installation m2
 
-    GradleVsMavenPerformanceTestRunner(TestDirectoryProvider testDirectoryProvider, GradleVsMavenBuildExperimentRunner experimentRunner, DataReporter<GradleVsMavenBuildPerformanceResults> dataReporter) {
-        super(experimentRunner, dataReporter)
+    GradleVsMavenPerformanceTestRunner(TestDirectoryProvider testDirectoryProvider, GradleVsMavenBuildExperimentRunner experimentRunner, DataReporter<GradleVsMavenBuildPerformanceResults> dataReporter, IntegrationTestBuildContext buildContext) {
+        super(experimentRunner, dataReporter, buildContext)
         m2 = new M2Installation(testDirectoryProvider)
     }
 
@@ -51,14 +52,13 @@ class GradleVsMavenPerformanceTestRunner extends AbstractGradleBuildPerformanceT
         super.finalizeSpec(builder)
         if (builder instanceof GradleBuildExperimentSpec.GradleBuilder) {
             def invocation = (GradleInvocationSpec.InvocationBuilder) builder.invocation
-            if (!invocation.gradleOptions) {
-                invocation.gradleOptions = ['-Xms2g', '-Xmx2g', '-XX:MaxPermSize=256m']
-            }
+            invocation.gradleOptions = customizeJvmOptions(invocation.gradleOptions)
             if (!builder.displayName.startsWith("Gradle ")) {
                 throw new IllegalArgumentException("Gradle invocation display name must start with 'Gradle '")
             }
         } else if (builder instanceof MavenBuildExperimentSpec.MavenBuilder) {
             def invocation = ((MavenBuildExperimentSpec.MavenBuilder) builder).invocation
+            invocation.jvmOpts = customizeJvmOptions(invocation.jvmOpts)
             if (!invocation.args.find { it.startsWith("-Dmaven.repo.local=") }) {
                 def localRepoPath = m2.mavenRepo().rootDir.absolutePath
                 if (OperatingSystem.current().isWindows()) {
@@ -90,7 +90,7 @@ class GradleVsMavenPerformanceTestRunner extends AbstractGradleBuildPerformanceT
             versionUnderTest: GradleVersion.current().getVersion(),
             vcsBranch: Git.current().branchName,
             vcsCommits: [Git.current().commitId],
-            startTime: System.currentTimeMillis(),
+            startTime: timeProvider.getCurrentTime(),
             channel: determineChannel()
         )
     }

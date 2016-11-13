@@ -20,6 +20,7 @@ import org.gradle.integtests.fixtures.FluidDependenciesResolveRunner
 import org.gradle.test.fixtures.maven.MavenFileRepository
 import org.junit.runner.RunWith
 import spock.lang.Issue
+import spock.lang.Unroll
 
 @RunWith(FluidDependenciesResolveRunner)
 class UnsupportedConfigurationMutationTest extends AbstractIntegrationSpec {
@@ -469,5 +470,26 @@ task resolveChildFirst {
         """
         when: fails()
         then: failure.assertHasCause("Cannot change attributes of configuration ':a' after it has been resolved")
+    }
+
+    @Unroll
+    def "cannot change the configuration role (#code) after it has been resolved"() {
+        buildFile << """
+            configurations { a }
+            configurations.a.resolve()
+            ${code}
+        """
+        when:
+        fails()
+
+        then:
+        failure.assertHasCause("Cannot change role of configuration ':a' after it has been resolved")
+
+        where:
+        role                      | code
+        'consume or publish only' | 'configurations.a.canBeResolved = false'
+        'query or resolve only'   | 'configurations.a.canBeConsumed = false'
+        'bucket'                  | 'configurations.a.canBeResolved = false; configurations.a.canBeConsumed = false'
+
     }
 }
